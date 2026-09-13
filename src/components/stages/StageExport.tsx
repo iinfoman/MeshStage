@@ -4,16 +4,17 @@ import { StageFloor } from '../../three/StageFloor';
 import { ActionBar } from '../ActionBar';
 import { Button } from '../Button';
 import { GlassSheet } from '../GlassSheet';
+import { ExportPreview } from '../ExportPreview';
 import { AlertIcon, BoltIcon, CheckIcon, CloudIcon, DownloadIcon, TrashIcon } from '../icons';
 import { useStudio } from '../../state/StudioContext';
 import { useExportRunner } from '../../hooks/useExportRunner';
-import { cn, formatBytes } from '../../lib/utils';
+import { cn } from '../../lib/utils';
 import { EXPORT_FORMATS, type ExportFormatMeta } from '../../types/studio';
 import type { ConfirmRequest } from '../ConfirmDialog';
 
 export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest) => void }) {
   const { state, dispatch, lipSync } = useStudio();
-  const { run, saveToLibrary, lastResult } = useExportRunner();
+  const { run, saveToLibrary, lastResult, saveLastResult } = useExportRunner();
   const character = state.character;
 
   const selected = EXPORT_FORMATS.find((format) => format.id === state.selectedFormat)!;
@@ -83,14 +84,20 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
             }
           />
 
-          <ExportStatus
-            status={state.exportJob.status}
-            progress={state.exportJob.progress}
-            message={state.exportJob.message}
-            resultBytes={lastResult?.bytes}
-            note={lastResult?.note}
-            onDismiss={() => dispatch({ type: 'exportDismissed' })}
-          />
+          {state.exportJob.status === 'done' && lastResult ? (
+            <ExportPreview
+              result={lastResult}
+              onSave={saveLastResult}
+              onDismiss={() => dispatch({ type: 'exportDismissed' })}
+            />
+          ) : (
+            <ExportStatus
+              status={state.exportJob.status}
+              progress={state.exportJob.progress}
+              message={state.exportJob.message}
+              onDismiss={() => dispatch({ type: 'exportDismissed' })}
+            />
+          )}
 
           <h2 className="mt-4 mb-2 text-[11px] font-semibold tracking-[0.13em] text-ink-500 uppercase">
             Download & save
@@ -316,18 +323,16 @@ function ExportStatus({
   status,
   progress,
   message,
-  resultBytes,
-  note,
   onDismiss,
 }: {
   status: 'idle' | 'running' | 'done' | 'error';
   progress: number;
   message: string | null;
-  resultBytes?: number;
-  note?: string;
   onDismiss: () => void;
 }) {
-  if (status === 'idle') return null;
+  // The success case is handled by <ExportPreview>, which verifies the bytes
+  // rather than just announcing them.
+  if (status === 'idle' || status === 'done') return null;
 
   if (status === 'running') {
     return (
@@ -346,32 +351,17 @@ function ExportStatus({
     );
   }
 
-  const failed = status === 'error';
-
   return (
     <div
       role="status"
-      className={cn(
-        'mt-3 flex items-start gap-3 rounded-2xl border px-3.5 py-3',
-        failed
-          ? 'border-danger-500/25 bg-danger-500/[0.07]'
-          : 'border-ok-400/25 bg-ok-400/[0.07]',
-      )}
+      className="mt-3 flex items-start gap-3 rounded-2xl border border-danger-500/25 bg-danger-500/[0.07] px-3.5 py-3"
     >
-      <span className={cn('mt-0.5 shrink-0', failed ? 'text-danger-400' : 'text-ok-400')}>
-        {failed ? <AlertIcon className="size-[18px]" /> : <CheckIcon className="size-[18px]" />}
+      <span className="mt-0.5 shrink-0 text-danger-400">
+        <AlertIcon className="size-[18px]" />
       </span>
 
       <span className="min-w-0 flex-1">
-        <span className={cn('block text-[13px] font-medium', failed ? 'text-danger-400' : 'text-ok-400')}>
-          {message}
-          {resultBytes !== undefined && !failed && (
-            <span className="ml-1.5 font-mono text-[11px] text-ink-500">
-              {formatBytes(resultBytes)}
-            </span>
-          )}
-        </span>
-        {note && !failed && <span className="mt-0.5 block text-[11.5px] text-ink-500">{note}</span>}
+        <span className="block text-[13px] font-medium text-danger-400">{message}</span>
       </span>
 
       <button

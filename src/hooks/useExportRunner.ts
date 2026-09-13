@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExportError, runExport, saveToCloudLibrary, type ExportResult } from '../lib/exporters';
+import { downloadBlob } from '../lib/utils';
 import { useStudio } from '../state/StudioContext';
 import { EXPORT_FORMATS, type ExportFormatId } from '../types/studio';
 
@@ -7,12 +8,30 @@ export interface ExportRunnerApi {
   run: (formatId: ExportFormatId) => Promise<void>;
   saveToLibrary: () => Promise<void>;
   lastResult: ExportResult | null;
+  /** Re-attempts the file save from a user gesture. */
+  saveLastResult: () => void;
   clearResult: () => void;
 }
 
 export function useExportRunner(): ExportRunnerApi {
   const { state, dispatch, scene, lipSync, audio } = useStudio();
   const [lastResult, setLastResult] = useState<ExportResult | null>(null);
+  const previousUrl = useRef<string | null>(null);
+
+  // Object URLs pin their blob in memory; a few 300KB GLBs and a video add up
+  // fast on a phone, so each result releases the one before it.
+  const adopt = useCallback((result: ExportResult | null) => {
+    if (previousUrl.current) URL.revokeObjectURL(previousUrl.current);
+    previousUrl.current = result?.objectUrl ?? null;
+    setLastResult(result);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (previousUrl.current) URL.revokeObjectURL(previousUrl.current);
+    },
+    [],
+  );
 
   const run = useCallback(
     async (formatId: ExportFormatId) => {
@@ -29,7 +48,7 @@ export function useExportRunner(): ExportRunnerApi {
       }
 
       dispatch({ type: 'exportStarted', formatId });
-      setLastResult(null);
+      adopt(null);
 
       try {
         // Video capture needs audio unlocked, otherwise the take records a
@@ -61,7 +80,7 @@ export function useExportRunner(): ExportRunnerApi {
               : undefined,
         });
 
-        setLastResult(result);
+        adopt(result);
         dispatch({
           type: 'exportSucceeded',
           message: `${result.filename} saved`,
@@ -79,8 +98,12 @@ export function useExportRunner(): ExportRunnerApi {
         if (formatId === 'video') lipSync.stop();
       }
     },
-    [state, dispatch, scene, lipSync, audio],
+    [state, dispatch, scene, lipSync, audio, adopt],
   );
+
+  const saveLastResult = useCallback(() => {
+    if (lastResult?.blob) downloadBlob(lastResult.blob, lastResult.filename);
+  }, [lastResult]);
 
   const saveToLibrary = useCallback(async () => {
     if (!state.character) return;
@@ -104,5 +127,5 @@ export function useExportRunner(): ExportRunnerApi {
     }
   }, [state, dispatch, lipSync]);
 
-  return { run, saveToLibrary, lastResult, clearResult: () => setLastResult(null) };
+  return { run, saveToLibrary, lastResult, saveLastResult, clearResult: () => adopt(null) };
 }

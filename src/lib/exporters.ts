@@ -3,7 +3,14 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { timelineToExport, type VisemeTimeline } from './visemes';
-import { downloadBlob, slugify } from './utils';
+import { downloadBlob, downloadsAreBlocked, slugify } from './utils';
+import {
+  inspectGlb,
+  inspectTimelineJson,
+  inspectUsdz,
+  inspectVideo,
+  type Inspection,
+} from './inspect';
 import type { CharacterRig } from '../three/characterFactory';
 import type { ExportFormatId } from '../types/studio';
 
@@ -29,6 +36,28 @@ export interface ExportResult {
   /** True when the artefact was produced entirely client-side. */
   local: boolean;
   note?: string;
+  /** The produced bytes, kept so the UI can verify and preview them. */
+  blob?: Blob;
+  /** Object URL for inline playback. The caller owns revoking it. */
+  objectUrl?: string;
+  /** Structural read-back of what was actually produced. */
+  inspection?: Inspection;
+  /** True when the browser refused the page-initiated save. */
+  saveBlocked?: boolean;
+}
+
+/**
+ * Hands the file to the user and reports whether that could work at all.
+ *
+ * Embedded viewers (and some in-app browsers) block page-initiated downloads
+ * silently — the click is simply inert. Rather than claim a save that never
+ * happened, deliveries report the environment so the UI can lead with the
+ * in-page verification instead.
+ */
+function deliver(blob: Blob, filename: string): { objectUrl: string; saveBlocked: boolean } {
+  const saveBlocked = downloadsAreBlocked();
+  if (!saveBlocked) downloadBlob(blob, filename);
+  return { objectUrl: URL.createObjectURL(blob), saveBlocked };
 }
 
 export class ExportError extends Error {}
@@ -118,7 +147,8 @@ async function exportGLB(context: ExportContext): Promise<ExportResult> {
         : new Blob([JSON.stringify(result)], { type: 'model/gltf+json' });
 
     const filename = `${slugify(context.characterName)}.glb`;
-    downloadBlob(blob, filename);
+    const inspection = inspectGlb(await blob.arrayBuffer());
+    const { objectUrl, saveBlocked } = deliver(blob, filename);
     context.onProgress?.(1);
 
     return {
@@ -126,6 +156,10 @@ async function exportGLB(context: ExportContext): Promise<ExportResult> {
       bytes: blob.size,
       local: true,
       note: 'Skeleton, 15 viseme blendshapes and PBR materials embedded.',
+      blob,
+      objectUrl,
+      inspection,
+      saveBlocked,
     };
   } finally {
     dispose();
@@ -144,7 +178,8 @@ async function exportUSDZ(context: ExportContext): Promise<ExportResult> {
 
     const blob = new Blob([result as unknown as BlobPart], { type: 'model/vnd.usdz+zip' });
     const filename = `${slugify(context.characterName)}.usdz`;
-    downloadBlob(blob, filename);
+    const inspection = inspectUsdz(await blob.arrayBuffer());
+    const { objectUrl, saveBlocked } = deliver(blob, filename);
     context.onProgress?.(1);
 
     return {
@@ -152,6 +187,10 @@ async function exportUSDZ(context: ExportContext): Promise<ExportResult> {
       bytes: blob.size,
       local: true,
       note: 'Open on iOS to launch AR Quick Look.',
+      blob,
+      objectUrl,
+      inspection,
+      saveBlocked,
     };
   } finally {
     dispose();
@@ -168,9 +207,11 @@ async function exportTimeline(context: ExportContext): Promise<ExportResult> {
     voice: context.voiceLabel,
   });
 
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const text = JSON.stringify(payload, null, 2);
+  const blob = new Blob([text], { type: 'application/json' });
   const filename = `${slugify(context.characterName)}-visemes.json`;
-  downloadBlob(blob, filename);
+  const inspection = inspectTimelineJson(text);
+  const { objectUrl, saveBlocked } = deliver(blob, filename);
   context.onProgress?.(1);
 
   return {
@@ -178,6 +219,10 @@ async function exportTimeline(context: ExportContext): Promise<ExportResult> {
     bytes: blob.size,
     local: true,
     note: `${payload.keys.length} keys over ${(payload.durationMs / 1000).toFixed(1)}s.`,
+    blob,
+    objectUrl,
+    inspection,
+    saveBlocked,
   };
 }
 
@@ -279,13 +324,23 @@ async function exportVideo(context: ExportContext): Promise<ExportResult> {
 
   const blob = new Blob(chunks, { type: codec.mimeType });
   const filename = `${slugify(context.characterName)}-lipsync.${codec.extension}`;
-  downloadBlob(blob, filename);
+  const inspection = inspectVideo(await blob.arrayBuffer(), codec.mimeType);
+  const { objectUrl, saveBlocked } = deliver(blob, filename);
   context.onProgress?.(1);
 
   const notes = [hasAudio ? 'Video and audio captured.' : 'Video captured (system voices record silent).'];
   if (context.transparentBackground) notes.push('Alpha matte is applied by the cloud renderer.');
 
-  return { filename, bytes: blob.size, local: true, note: notes.join(' ') };
+  return {
+    filename,
+    bytes: blob.size,
+    local: true,
+    note: notes.join(' '),
+    blob,
+    objectUrl,
+    inspection,
+    saveBlocked,
+  };
 }
 
 /**
@@ -332,7 +387,7 @@ async function exportFBX(context: ExportContext): Promise<ExportResult> {
     context.onProgress?.(0.95);
 
     const filename = `${slugify(context.characterName)}.fbx`;
-    downloadBlob(blob, filename);
+    const { objectUrl, saveBlocked } = deliver(blob, filename);
     context.onProgress?.(1);
 
     return {
@@ -340,6 +395,9 @@ async function exportFBX(context: ExportContext): Promise<ExportResult> {
       bytes: blob.size,
       local: false,
       note: 'Converted by the MeshStage render service.',
+      blob,
+      objectUrl,
+      saveBlocked,
     };
   } finally {
     dispose();

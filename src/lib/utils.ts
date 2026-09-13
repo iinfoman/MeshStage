@@ -79,3 +79,26 @@ export function slugify(input: string): string {
       .slice(0, 48) || 'meshstage-character'
   );
 }
+
+/**
+ * True when this page almost certainly cannot start its own download.
+ *
+ * Embedded viewers sandbox the frame, and `allow-downloads` is commonly
+ * withheld — the anchor click is then simply inert, with no error to catch.
+ * There is no direct feature test, so this reads the sandbox flags where the
+ * browser exposes them and falls back to "we are framed cross-origin".
+ */
+export function downloadsAreBlocked(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.self === window.top) return false;
+
+  const sandbox = window.frameElement?.getAttribute('sandbox');
+  if (sandbox !== null && sandbox !== undefined) {
+    return !sandbox.split(/\s+/).includes('allow-downloads');
+  }
+
+  // Cross-origin frame: `frameElement` throws or returns null, so we cannot
+  // read the flags. Assume blocked and lead with in-page verification, which
+  // is the more useful surface either way.
+  return true;
+}
