@@ -228,7 +228,9 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
 
           <SheetSection
             title="Build"
-            hint={state.body === 'head' ? 'Rig lives in the head' : 'Character extent'}
+            hint={
+              character && state.body === character.build ? 'Matched to your input' : 'Changed'
+            }
           >
             <PillGroup<BodyPreset>
               ariaLabel="How much of the character to build"
@@ -240,10 +242,10 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
                 hint: preset.hint,
               }))}
             />
-            {state.body !== 'full' && character?.source === 'image' && (
+            {character?.source === 'image' && state.body === 'head' && (
               <p className="text-[11px] leading-relaxed text-ink-600">
-                Your reference is mapped onto the face. All 15 visemes live in the head, so it
-                still talks and still exports rigged.
+                You uploaded a face, so you get a face. Your reference is mapped onto it, and all
+                15 visemes live in the head — it still talks and still exports rigged.
               </p>
             )}
           </SheetSection>

@@ -1,6 +1,6 @@
 import { analyzeImage } from './imageAnalysis';
 import { hashString } from './utils';
-import type { CharacterAppearance } from '../three/characterFactory';
+import type { BodyPreset, CharacterAppearance } from '../three/characterFactory';
 
 /**
  * Character generation, with two backends behind one interface.
@@ -37,6 +37,21 @@ export interface GenerationOutput {
   rigged?: boolean;
   /** Set when a service attempt failed and we fell back. */
   notice?: string;
+  /**
+   * What to build, decided from the reference itself.
+   *
+   * A face comes back as a face. The user does not have to find a setting to
+   * correct an output that never matched what they uploaded.
+   */
+  build: BodyPreset;
+}
+
+/** A face becomes a head; a full figure becomes a full body. */
+function buildFor(subject: 'face' | 'figure' | 'artwork'): BodyPreset {
+  if (subject === 'face') return 'head';
+  if (subject === 'figure') return 'full';
+  // Artwork with no face is worn by a character rather than becoming one.
+  return 'full';
 }
 
 export function generationEndpoint(): string | null {
@@ -88,6 +103,7 @@ async function generateLocally(
 
     return {
       mode: 'local',
+      build: buildFor(analysis.subject),
       // Pixel-derived: renaming the file changes nothing, editing one pixel
       // changes everything. The old build hashed the file name instead.
       seed: analysis.contentHash,
@@ -102,7 +118,8 @@ async function generateLocally(
     };
   }
 
-  return { mode: 'local', seed: hashString(`prompt:${(input.prompt ?? '').trim()}`) };
+  // A prompt describes a character, so it gets the whole character.
+  return { mode: 'local', build: 'full', seed: hashString(`prompt:${(input.prompt ?? '').trim()}`) };
 }
 
 interface ServiceJob {
@@ -172,6 +189,7 @@ async function generateViaService(
 
   return {
     mode: 'service',
+    build: analysis ? buildFor(analysis.subject) : 'full',
     seed: analysis?.contentHash ?? hashString(job.id),
     meshUrl: job.meshUrl,
     rigged: job.rigged ?? false,

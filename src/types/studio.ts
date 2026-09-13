@@ -71,6 +71,8 @@ export interface CharacterAsset {
   blendshapeCount: number;
   /** Palette and artwork derived from the uploaded reference, when there was one. */
   appearance?: CharacterAppearance;
+  /** What the reference called for: a face becomes a head, a figure a body. */
+  build: BodyPreset;
   /** How this asset was produced. */
   mode: 'local' | 'service';
   /** URL of a provider-reconstructed mesh, when one exists. */

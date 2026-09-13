@@ -96,6 +96,41 @@ test.describe('generation from an upload', () => {
       .toBeGreaterThan(0.3);
   });
 
+  test('a face reference produces a head, with no settings touched', async ({ page }) => {
+    const errors = watchForErrors(page);
+    await generateFromUpload(page, fixtures.face);
+
+    // The app reads the upload and matches the output to it. Nothing here
+    // clicks the Build control — that is the whole point.
+    await expect(
+      page.getByRole('button', { name: /Head only/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('a standing figure produces a full body', async ({ page }) => {
+    await generateFromUpload(page, fixtures.figure);
+
+    await expect(
+      page.getByRole('button', { name: /Full body/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('a prompt produces a full character', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('tab', { name: 'Prompt Text' }).click();
+    await page.locator('textarea').fill('Cobalt warden in a heavy exosuit');
+    await page.getByRole('button', { name: 'Generate 3D Character' }).click();
+    await expect(page.getByRole('button', { name: 'Finalize & Continue to Export' })).toBeVisible({
+      timeout: 45_000,
+    });
+
+    await expect(
+      page.getByRole('button', { name: /Full body/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+  });
+
   test('a failed upload returns to stage 1 with the input intact', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('tab', { name: 'Prompt Text' }).click();

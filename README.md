@@ -206,10 +206,24 @@ This is honest about its limits: it is **your colours and artwork on a
 procedural mesh, not a 3D reconstruction of your image**. The studio says so on
 stage 3 rather than implying otherwise.
 
-**Build presets.** Stage 3 offers `Full body`, `Bust` and `Head only`. The
-viseme rig lives entirely in the head, so a head build still talks and still
-exports rigged — which makes `Head only` the right choice for a mascot or
-emoji, where a generic torso only gets in the way.
+**The output matches the input.** The app reads the reference and decides what
+to build — it does not default to a full body and leave the user to find a
+setting that corrects it:
+
+| You upload | You get |
+|---|---|
+| A face or mascot head | A head |
+| A standing figure | A full body |
+| A prompt | A full character |
+
+`classifySubject` decides, from two cheap signals: the subject's real aspect
+ratio (corrected for the sample canvas's stretch) and whether a face's features
+sit where a face's features go — a balanced pair of dark masses either side of
+centre, above a mouth. The Build control on stage 3 stays as an override, and
+says whether the current build still matches what you uploaded.
+
+The viseme rig lives entirely in the head, so a head build still talks and
+still exports rigged.
 
 On a head or bust build the reference is mapped onto the **face** rather than
 worn as a chest panel: a sphere segment wrapping the front of the skull, with

@@ -63,6 +63,10 @@ export interface Fixtures {
   mascotCool: string;
   /** Byte-identical to mascotWarm, saved under a different name. */
   mascotWarmRenamed: string;
+  /** A face: round, two eyes above a mouth, on a flat white background. */
+  face: string;
+  /** A standing figure: much taller than wide. */
+  figure: string;
 }
 
 export function writeFixtures(): Fixtures {
@@ -85,15 +89,51 @@ export function writeFixtures(): Fixtures {
     return [26, 196, 186, 255];
   });
 
+  // A face on flat white, in a tall frame — the shape of a phone screenshot,
+  // which is how most people actually send a mascot.
+  const face = encodePng(size, (x, y) => {
+    const cx = size / 2;
+    const cy = size / 2;
+    const radius = size * 0.34;
+    if (Math.hypot(x - cx, y - cy) > radius) return [255, 255, 255, 255];
+
+    const eyeY = cy - radius * 0.24;
+    for (const side of [-1, 1]) {
+      if (Math.hypot(x - (cx + side * radius * 0.36), y - eyeY) < radius * 0.15) {
+        return [26, 18, 16, 255];
+      }
+    }
+    // Mouth: a warm dark band low on the face.
+    if (Math.abs(x - cx) < radius * 0.38 && Math.abs(y - (cy + radius * 0.36)) < radius * 0.14) {
+      return [150, 22, 30, 255];
+    }
+    return [255, 150, 30, 255];
+  });
+
+  const figure = encodePng(size, (x, y) => {
+    const cx = size / 2;
+    // Deliberately narrow so the corrected aspect reads as a standing figure.
+    if (y < size * 0.18 && Math.abs(x - cx) < size * 0.09) return [60, 70, 110, 255];
+    if (y >= size * 0.18 && y < size * 0.62 && Math.abs(x - cx) < size * 0.14) {
+      return [40, 120, 190, 255];
+    }
+    if (y >= size * 0.62 && Math.abs(x - cx) < size * 0.11) return [30, 40, 80, 255];
+    return [0, 0, 0, 0];
+  }, 96);
+
   const paths = {
     mascotWarm: join(dir, 'mascot-warm.png'),
     mascotCool: join(dir, 'mascot-cool.png'),
     mascotWarmRenamed: join(dir, 'totally-different-name.png'),
+    face: join(dir, 'face.png'),
+    figure: join(dir, 'figure.png'),
   };
 
   writeFileSync(paths.mascotWarm, warm);
   writeFileSync(paths.mascotCool, cool);
   writeFileSync(paths.mascotWarmRenamed, warm);
+  writeFileSync(paths.face, face);
+  writeFileSync(paths.figure, figure);
 
   return paths;
 }

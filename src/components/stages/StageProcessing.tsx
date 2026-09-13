@@ -2,7 +2,7 @@ import { Viewport } from '../../three/Viewport';
 import { RiggingPreview } from '../../three/RiggingPreview';
 import { analyzeImage } from '../../lib/imageAnalysis';
 import { useEffect, useState } from 'react';
-import type { CharacterAppearance } from '../../three/characterFactory';
+import type { BodyPreset, CharacterAppearance } from '../../three/characterFactory';
 import { ActionBar } from '../ActionBar';
 import { Button } from '../Button';
 import { TrashIcon } from '../icons';
@@ -19,13 +19,15 @@ export function StageProcessing({ onConfirm }: { onConfirm: (request: ConfirmReq
   // Preview the asset the finished character will use, so the wireframe the
   // user watches assemble is the mesh they end up with. For an upload that
   // means reading the same pixels the generator reads.
-  const [preview, setPreview] = useState<{ seed: number; appearance?: CharacterAppearance }>(() => ({
-    seed: hashString(`prompt:${state.prompt.trim()}`),
-  }));
+  const [preview, setPreview] = useState<{
+    seed: number;
+    appearance?: CharacterAppearance;
+    build: BodyPreset;
+  }>(() => ({ seed: hashString(`prompt:${state.prompt.trim()}`), build: 'full' }));
 
   useEffect(() => {
     if (state.inputMode !== 'image' || !state.imageDataUrl) {
-      setPreview({ seed: hashString(`prompt:${state.prompt.trim()}`) });
+      setPreview({ seed: hashString(`prompt:${state.prompt.trim()}`), build: 'full' });
       return;
     }
 
@@ -35,6 +37,8 @@ export function StageProcessing({ onConfirm }: { onConfirm: (request: ConfirmReq
         if (cancelled) return;
         setPreview({
           seed: analysis.contentHash,
+          // Watch the thing you are actually going to get assemble.
+          build: analysis.subject === 'face' ? 'head' : 'full',
           appearance: {
             suit: analysis.dominant,
             accent: analysis.accent,
@@ -98,6 +102,7 @@ export function StageProcessing({ onConfirm }: { onConfirm: (request: ConfirmReq
             progress={progress}
             phase={phase}
             appearance={preview.appearance}
+            body={preview.build}
           />
         </Viewport>
 

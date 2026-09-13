@@ -139,6 +139,9 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         ...state,
         stage: 'voice',
         character: action.character,
+        // The output matches the input: a face reference arrives as a head,
+        // without the user having to go and change a setting.
+        body: action.character.build,
         pipeline: { progress: 1, phase: 'blendshape', running: false },
       };
 

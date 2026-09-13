@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { createCharacterRig, type CharacterAppearance } from './characterFactory';
+import {
+  createCharacterRig,
+  type BodyPreset,
+  type CharacterAppearance,
+} from './characterFactory';
 import type { PipelinePhase } from '../types/studio';
 
 /**
@@ -17,13 +21,18 @@ export function RiggingPreview({
   progress,
   phase,
   appearance,
+  body = 'full',
 }: {
   seed: number;
   progress: number;
   phase: PipelinePhase;
   appearance?: CharacterAppearance;
+  body?: BodyPreset;
 }) {
-  const rig = useMemo(() => createCharacterRig(seed, appearance), [seed, appearance]);
+  const rig = useMemo(
+    () => createCharacterRig(seed, appearance, body),
+    [seed, appearance, body],
+  );
   const groupRef = useRef<THREE.Group>(null);
   const scanRef = useRef<THREE.Mesh>(null);
 

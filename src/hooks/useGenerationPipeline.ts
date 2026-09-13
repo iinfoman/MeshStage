@@ -129,6 +129,7 @@ export function buildCharacter(
     boneCount: RIG_BONE_COUNT,
     blendshapeCount: BLENDSHAPE_COUNT,
     appearance: output.appearance,
+    build: output.build,
     mode: output.mode,
     meshUrl: output.meshUrl,
     notice: output.notice,

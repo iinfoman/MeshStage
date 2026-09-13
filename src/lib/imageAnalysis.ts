@@ -33,6 +33,14 @@ export interface ImageAnalysis {
    * position that happens to miss.
    */
   mouthAnchor: { u: number; v: number } | null;
+  /**
+   * What the reference actually is, and therefore what to build.
+   *
+   * A face has to come back as a face. The app reads the upload and matches
+   * the output to it rather than defaulting to a full body and expecting the
+   * user to go and correct it.
+   */
+  subject: 'face' | 'figure' | 'artwork';
 }
 
 /** Sampling resolution. 64² is plenty for palette work and costs ~4ms. */
@@ -167,6 +175,8 @@ export async function analyzeImage(dataUrl: string): Promise<ImageAnalysis> {
         0.2126 * a.r + 0.7152 * a.g + 0.0722 * a.b - (0.2126 * b.r + 0.7152 * b.g + 0.0722 * b.b),
     )[0] ?? { r: 20, g: 20, b: 28 };
 
+  const mouth = findMouthAnchor(data, bounds, backdrop, image.naturalWidth, image.naturalHeight);
+
   return {
     dominant,
     accent: toHex(accentEntry.r, accentEntry.g, accentEntry.b),
@@ -175,13 +185,8 @@ export async function analyzeImage(dataUrl: string): Promise<ImageAnalysis> {
     hasAlpha,
     palette,
     textureDataUrl: buildTexture(image, bounds, backdrop),
-    mouthAnchor: findMouthAnchor(
-      data,
-      bounds,
-      backdrop,
-      image.naturalWidth,
-      image.naturalHeight,
-    ),
+    mouthAnchor: mouth,
+    subject: classifySubject(data, bounds, backdrop, image, Boolean(mouth)),
     contentHash: hash >>> 0,
   };
 }
@@ -317,6 +322,83 @@ function sampleToTextureUv(
     u: (1 - drawnW) / 2 + offsetX * scale,
     v: (1 - drawnH) / 2 + offsetY * scale,
   };
+}
+
+/**
+ * Decides what the upload depicts.
+ *
+ * Two signals, both cheap: the subject's real-world aspect ratio (corrected
+ * for the sample canvas's stretch), and whether a face's features are where a
+ * face's features go — a pair of dark masses either side of centre above a
+ * mouth. A head-and-shoulders photo or a mascot reads as `face`; a standing
+ * figure is far taller than it is wide and reads as `figure`.
+ */
+function classifySubject(
+  data: Uint8ClampedArray,
+  bounds: { minX: number; minY: number; maxX: number; maxY: number } | null,
+  backdrop: [number, number, number] | null,
+  image: HTMLImageElement,
+  hasMouth: boolean,
+): 'face' | 'figure' | 'artwork' {
+  const box = bounds ?? { minX: 0, minY: 0, maxX: SAMPLE - 1, maxY: SAMPLE - 1 };
+  const width = box.maxX - box.minX;
+  const height = box.maxY - box.minY;
+  if (width < 6 || height < 6) return 'artwork';
+
+  // Undo the sample canvas's stretch before judging proportions.
+  const aspect =
+    (width * (image.naturalWidth / SAMPLE)) / (height * (image.naturalHeight / SAMPLE));
+
+  // A standing figure is much taller than wide; no face crop ever is.
+  if (aspect < 0.55) return 'figure';
+
+  return hasEyePair(data, box, backdrop) && hasMouth ? 'face' : aspect > 1.6 ? 'artwork' : 'face';
+}
+
+/** Looks for two balanced dark masses either side of centre, above the mouth. */
+function hasEyePair(
+  data: Uint8ClampedArray,
+  box: { minX: number; minY: number; maxX: number; maxY: number },
+  backdrop: [number, number, number] | null,
+): boolean {
+  const width = box.maxX - box.minX;
+  const height = box.maxY - box.minY;
+
+  const top = box.minY + height * 0.25;
+  const bottom = box.minY + height * 0.58;
+  const centre = box.minX + width / 2;
+
+  let left = 0;
+  let right = 0;
+
+  for (let y = Math.floor(top); y <= Math.floor(bottom); y += 1) {
+    for (let x = box.minX; x <= box.maxX; x += 1) {
+      const i = (y * SAMPLE + x) * 4;
+      if (data[i + 3] < 24) continue;
+      if (
+        backdrop &&
+        Math.abs(data[i] - backdrop[0]) +
+          Math.abs(data[i + 1] - backdrop[1]) +
+          Math.abs(data[i + 2] - backdrop[2]) <
+          48
+      ) {
+        continue;
+      }
+
+      const luminance =
+        (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+      if (luminance > 0.42) continue;
+
+      if (x < centre) left += 1;
+      else right += 1;
+    }
+  }
+
+  if (left < 2 || right < 2) return false;
+
+  // Eyes come in pairs, so the two sides should carry comparable mass.
+  const balance = Math.min(left, right) / Math.max(left, right);
+  return balance > 0.35;
 }
 
 function findMouthAnchor(
