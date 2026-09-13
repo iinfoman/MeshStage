@@ -11,6 +11,7 @@ import { initialState, studioReducer, type StudioAction } from './studioReducer'
 import { useAudioUnlock, type AudioUnlockApi } from '../hooks/useAudioUnlock';
 import { useGenerationPipeline } from '../hooks/useGenerationPipeline';
 import { useLipSync, type LipSyncApi } from '../hooks/useLipSync';
+import { useAccount, type AccountApi } from '../hooks/useAccount';
 import type { CharacterRig } from '../three/characterFactory';
 import type { StudioState } from '../types/studio';
 
@@ -31,6 +32,7 @@ interface StudioContextValue {
   dispatch: Dispatch<StudioAction>;
   audio: AudioUnlockApi;
   lipSync: LipSyncApi;
+  account: AccountApi;
   scene: React.MutableRefObject<SceneHandles>;
 }
 
@@ -40,13 +42,14 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(studioReducer, initialState);
   const audio = useAudioUnlock();
   const lipSync = useLipSync(state.script, state.voice, audio);
+  const account = useAccount();
   const scene = useRef<SceneHandles>({ rig: null, canvas: null });
 
   useGenerationPipeline(state, dispatch);
 
   const value = useMemo<StudioContextValue>(
-    () => ({ state, dispatch, audio, lipSync, scene }),
-    [state, audio, lipSync],
+    () => ({ state, dispatch, audio, lipSync, account, scene }),
+    [state, audio, lipSync, account],
   );
 
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;

@@ -149,22 +149,58 @@ requirements beyond serving `dist/` and falling back to `index.html`:
 The TTS service is verified working: CI fetches **322 Edge neural voices** and
 synthesises real audio on every push.
 
-### What is NOT production-ready
+### Accounts and render credits
 
-Be clear-eyed about this before putting it in front of paying users. The
-pipeline, rig, lip-sync and exports are real. The commercial layer is not:
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` against a project with
+`supabase/migrations` applied, and metering becomes real:
+
+- Magic-link sign-in, plus an optional guest account so the flow can be tried
+  without an email address. A guest is a real auth user with its own balance.
+- Every new user gets a profile with the free-tier allowance, created by a
+  trigger on `auth.users`.
+- Metered exports call `consume_render_credit()` **before** any rendering
+  work, so a failed balance check costs nothing.
+- The balance shown in the UI is whatever the database returned. The client
+  never computes it.
+
+**Why it cannot be forged.** `profiles` has row-level security on with SELECT
+policies only — no INSERT, UPDATE or DELETE policy exists, so every client
+write is rejected outright. The one path that can move a balance is a
+`SECURITY DEFINER` function that re-checks the balance, locks the row (so two
+concurrent exports cannot both spend the last credit), decrements, and writes
+an audit row — all in one transaction. Plan changes live in a separate function
+granted to `service_role` only, ready for a payment webhook and unreachable
+from a browser.
+
+Verified directly against the database:
+
+| Attempt | Result |
+|---|---|
+| Client reads own profile | allowed |
+| Client `UPDATE`s its own credits to 9999 | **0 rows written**, balance unchanged |
+| Client `INSERT`s a profile for another user | **rejected** (`42501`) |
+| Client calls `consume_render_credit()` | allowed, 10 → 9, ledger row written |
+| Client calls `apply_plan_change()` to self-upgrade | **permission denied** |
+
+The anon key is meant to ship in the bundle — it grants nothing on its own, and
+RLS is what protects the data.
+
+Guest accounts need **Anonymous sign-ins** enabled under Supabase →
+Authentication → Providers; magic links work out of the box.
+
+### What is still NOT production-ready
+
+The pipeline, rig, lip-sync, exports and now metering are real. What remains:
 
 - **Character generation is simulated.** `useGenerationPipeline.ts` runs a
   timed progress bar and `characterFactory.ts` builds a procedural mesh from a
   hash of the input. No image or prompt is reconstructed into geometry. This is
   the single biggest gap — it is the product's core promise, and it needs a
   real reconstruction service behind it.
-- **There is no auth.** Every session is anonymous.
-- **Credits are client-side state.** `tier.rendersLeft` lives in a React
-  reducer. A refresh restores them and devtools can set them to anything. It
-  demonstrates the metering UX; it does not enforce anything. Real metering has
-  to be server-side, keyed to an authenticated user.
-- **No payments.** "Upgrade" flips a local flag.
+- **No payments.** `apply_plan_change()` is the seam a webhook would call; the
+  "Upgrade" button does not yet reach it.
+- **Credits never refill.** `period_started_at` exists for a monthly reset job
+  that has not been written.
 - **The cloud library does not persist.** Without a backend it writes to
   `localStorage`; the reference endpoint accepts and discards.
 - **FBX is unimplemented.** The client posts glTF to a conversion service that
@@ -172,8 +208,8 @@ pipeline, rig, lip-sync and exports are real. The commercial layer is not:
 - **No rate limiting on the TTS endpoint.** As written, anyone who finds the
   URL can drive synthesis at your cost.
 
-A reasonable order to close these: auth → server-side credits → payments →
-real generation backend → FBX conversion.
+A reasonable order from here: payments → monthly credit reset → real
+generation backend → FBX conversion.
 
 ## Architecture
 

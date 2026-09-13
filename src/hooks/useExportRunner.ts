@@ -3,6 +3,7 @@ import { ExportError, runExport, saveToCloudLibrary, type ExportResult } from '.
 import { downloadBlob } from '../lib/utils';
 import { useStudio } from '../state/StudioContext';
 import { EXPORT_FORMATS, type ExportFormatId } from '../types/studio';
+import { InsufficientCreditsError } from '../lib/supabase';
 
 export interface ExportRunnerApi {
   run: (formatId: ExportFormatId) => Promise<void>;
@@ -14,7 +15,7 @@ export interface ExportRunnerApi {
 }
 
 export function useExportRunner(): ExportRunnerApi {
-  const { state, dispatch, scene, lipSync, audio } = useStudio();
+  const { state, dispatch, scene, lipSync, audio, account } = useStudio();
   const [lastResult, setLastResult] = useState<ExportResult | null>(null);
   const previousUrl = useRef<string | null>(null);
 
@@ -38,19 +39,38 @@ export function useExportRunner(): ExportRunnerApi {
       const format = EXPORT_FORMATS.find((entry) => entry.id === formatId);
       if (!format || !state.character) return;
 
-      // Metered formats are the paywall: check credits before doing any work.
-      if (format.metered && state.tier.rendersLeft <= 0) {
-        dispatch({
-          type: 'exportFailed',
-          message: 'No render credits left. Upgrade to keep exporting video.',
-        });
-        return;
+      // Metered formats are the paywall. With accounts configured the balance
+      // is spent server-side *before* any rendering work, so a tampered client
+      // cannot buy a render by lying about its balance. The local tier is only
+      // the fallback when no backend is wired up.
+      const enforced = account.status !== 'disabled';
+
+      if (format.metered) {
+        if (enforced && account.status !== 'signed-in') {
+          dispatch({
+            type: 'exportFailed',
+            message: 'Sign in to render video — credits are tied to your account.',
+          });
+          return;
+        }
+        if (!enforced && state.tier.rendersLeft <= 0) {
+          dispatch({
+            type: 'exportFailed',
+            message: 'No render credits left. Upgrade to keep exporting video.',
+          });
+          return;
+        }
       }
 
       dispatch({ type: 'exportStarted', formatId });
       adopt(null);
 
       try {
+        if (format.metered && enforced) {
+          // Throws on an empty balance, which aborts before we render.
+          await account.spendCredit(formatId, state.character.id);
+        }
+
         // Video capture needs audio unlocked, otherwise the take records a
         // silent, motionless character on iOS.
         if (formatId === 'video' && audio.needsGesture && !audio.unlocked) {
@@ -84,21 +104,25 @@ export function useExportRunner(): ExportRunnerApi {
         dispatch({
           type: 'exportSucceeded',
           message: `${result.filename} saved`,
-          consumedRender: format.metered,
+          // The server already debited when accounts are on; decrementing the
+          // local mirror too would double-count.
+          consumedRender: format.metered && !enforced,
         });
       } catch (error) {
         dispatch({
           type: 'exportFailed',
           message:
-            error instanceof ExportError
-              ? error.message
-              : 'Export failed. Check your connection and try again.',
+            error instanceof InsufficientCreditsError
+              ? 'No render credits left on this plan. Upgrade to keep rendering.'
+              : error instanceof ExportError
+                ? error.message
+                : 'Export failed. Check your connection and try again.',
         });
       } finally {
         if (formatId === 'video') lipSync.stop();
       }
     },
-    [state, dispatch, scene, lipSync, audio, adopt],
+    [state, dispatch, scene, lipSync, audio, account, adopt],
   );
 
   const saveLastResult = useCallback(() => {

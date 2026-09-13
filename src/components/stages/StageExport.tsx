@@ -5,7 +5,9 @@ import { ActionBar } from '../ActionBar';
 import { Button } from '../Button';
 import { GlassSheet } from '../GlassSheet';
 import { ExportPreview } from '../ExportPreview';
+import { AccountChip, AccountSheet } from '../AccountSheet';
 import { AlertIcon, BoltIcon, CheckIcon, CloudIcon, DownloadIcon, TrashIcon } from '../icons';
+import { useState } from 'react';
 import { useStudio } from '../../state/StudioContext';
 import { useExportRunner } from '../../hooks/useExportRunner';
 import { cn } from '../../lib/utils';
@@ -13,13 +15,17 @@ import { EXPORT_FORMATS, type ExportFormatMeta } from '../../types/studio';
 import type { ConfirmRequest } from '../ConfirmDialog';
 
 export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest) => void }) {
-  const { state, dispatch, lipSync } = useStudio();
+  const { state, dispatch, lipSync, account } = useStudio();
+  const [accountOpen, setAccountOpen] = useState(false);
   const { run, saveToLibrary, lastResult, saveLastResult } = useExportRunner();
   const character = state.character;
 
   const selected = EXPORT_FORMATS.find((format) => format.id === state.selectedFormat)!;
   const exporting = state.exportJob.status === 'running';
-  const outOfCredits = selected.metered && state.tier.rendersLeft <= 0;
+  const creditsLeft = account.profile?.creditsRemaining ?? state.tier.rendersLeft;
+  const needsSignIn =
+    selected.metered && account.status !== 'disabled' && account.status !== 'signed-in';
+  const outOfCredits = selected.metered && creditsLeft <= 0;
 
   const handleDiscard = () => {
     onConfirm({
@@ -68,10 +74,16 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
       {/* Lower 50%: the SaaS hub. */}
       <GlassSheet className="min-h-0 flex-1 basis-1/2">
         <div className="scroll-pane flex-1 px-4 pb-4">
+          {account.status !== 'disabled' && (
+            <div className="mb-2">
+              <AccountChip onOpen={() => setAccountOpen(true)} />
+            </div>
+          )}
+
           <TierBadge
-            plan={state.tier.plan}
-            left={state.tier.rendersLeft}
-            total={state.tier.rendersTotal}
+            plan={account.profile?.plan ?? state.tier.plan}
+            left={account.profile?.creditsRemaining ?? state.tier.rendersLeft}
+            total={account.profile?.creditsTotal ?? state.tier.rendersTotal}
             onUpgrade={() =>
               onConfirm({
                 title: 'Upgrade to Creator',
@@ -160,7 +172,7 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
             variant="primary"
             className="flex-[1.35]"
             loading={exporting}
-            disabled={outOfCredits || !character}
+            disabled={outOfCredits || needsSignIn || !character}
             icon={<DownloadIcon className="size-[18px]" />}
             onClick={() => void run(state.selectedFormat)}
           >
@@ -168,11 +180,19 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
               ? selected.id === 'video'
                 ? 'Rendering take…'
                 : 'Preparing…'
-              : outOfCredits
-                ? 'Upgrade to render'
-                : `Download ${selected.extension.split(' ')[0]}`}
+              : needsSignIn
+                ? 'Sign in to render'
+                : outOfCredits
+                  ? 'Upgrade to render'
+                  : `Download ${selected.extension.split(' ')[0]}`}
           </Button>
         </div>
+
+        {needsSignIn && (
+          <Button variant="outline" block onClick={() => setAccountOpen(true)}>
+            Sign in to unlock video render
+          </Button>
+        )}
 
         <Button
           variant="destructive"
@@ -183,6 +203,8 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
           Discard & New Character
         </Button>
       </ActionBar>
+
+      {accountOpen && <AccountSheet onClose={() => setAccountOpen(false)} />}
     </>
   );
 }

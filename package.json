@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "MeshStage \u2014 mobile-first 3D character animation & real-time lip-sync creation studio.",
+  "description": "MeshStage — mobile-first 3D character animation & real-time lip-sync creation studio.",
   "scripts": {
     "dev": "vite --host",
     "build": "tsc -b && vite build",
@@ -18,6 +18,7 @@
   "dependencies": {
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
+    "@supabase/supabase-js": "^2.116.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "three": "^0.170.0"
