@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { createCharacterRig } from './characterFactory';
+import { createCharacterRig, type CharacterAppearance } from './characterFactory';
 import type { PipelinePhase } from '../types/studio';
 
 /**
@@ -16,12 +16,14 @@ export function RiggingPreview({
   seed,
   progress,
   phase,
+  appearance,
 }: {
   seed: number;
   progress: number;
   phase: PipelinePhase;
+  appearance?: CharacterAppearance;
 }) {
-  const rig = useMemo(() => createCharacterRig(seed), [seed]);
+  const rig = useMemo(() => createCharacterRig(seed, appearance), [seed, appearance]);
   const groupRef = useRef<THREE.Group>(null);
   const scanRef = useRef<THREE.Mesh>(null);
 

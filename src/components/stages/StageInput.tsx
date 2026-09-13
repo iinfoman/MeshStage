@@ -24,6 +24,8 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A failed generation lands back here; show why before the local error.
+  const message = error ?? state.generationError;
 
   const ready = hasUsableInput(state);
   const dirty = Boolean(state.imageDataUrl) || state.prompt.trim().length > 0;
@@ -110,9 +112,9 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
           )}
         </div>
 
-        {error && (
+        {message && (
           <p role="alert" className="mt-3 rounded-xl bg-danger-500/10 px-3.5 py-2.5 text-[12.5px] text-danger-400">
-            {error}
+            {message}
           </p>
         )}
 

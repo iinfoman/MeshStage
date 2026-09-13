@@ -3,6 +3,7 @@
  */
 
 import type { VoiceProvider } from '../lib/tts';
+import type { CharacterAppearance } from '../three/characterFactory';
 
 export type StageId = 'input' | 'processing' | 'voice' | 'export';
 
@@ -68,6 +69,14 @@ export interface CharacterAsset {
   polycount: number;
   boneCount: number;
   blendshapeCount: number;
+  /** Palette and artwork derived from the uploaded reference, when there was one. */
+  appearance?: CharacterAppearance;
+  /** How this asset was produced. */
+  mode: 'local' | 'service';
+  /** URL of a provider-reconstructed mesh, when one exists. */
+  meshUrl?: string;
+  /** Non-fatal note, e.g. a provider fallback. */
+  notice?: string;
 }
 
 export type MotionPreset = 'standing' | 'talking' | 'floating';
@@ -194,4 +203,6 @@ export interface StudioState {
   tier: TierState;
   cloudSave: CloudSaveState;
   exportJob: ExportJobState;
+  /** Surfaced on stage 1 when a generation attempt failed. */
+  generationError: string | null;
 }

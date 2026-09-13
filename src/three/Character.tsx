@@ -5,6 +5,7 @@ import { createCharacterRig } from './characterFactory';
 import { useStudio } from '../state/StudioContext';
 import { VISEMES } from '../lib/visemes';
 import type { MotionPreset } from '../types/studio';
+import type { CharacterAppearance } from './characterFactory';
 
 /** How quickly morph influences chase their target (per second). */
 const VISEME_ATTACK = 22;
@@ -13,14 +14,16 @@ const VISEME_RELEASE = 13;
 interface CharacterProps {
   seed: number;
   motion: MotionPreset;
+  /** Look derived from the user's upload, when there was one. */
+  appearance?: CharacterAppearance;
 }
 
-export function Character({ seed, motion }: CharacterProps) {
+export function Character({ seed, motion, appearance }: CharacterProps) {
   const { lipSync, scene } = useStudio();
 
   // Rebuilt only when the seed changes, i.e. when a genuinely new character
   // is generated — motion preset changes never touch geometry.
-  const rig = useMemo(() => createCharacterRig(seed), [seed]);
+  const rig = useMemo(() => createCharacterRig(seed, appearance), [seed, appearance]);
 
   const influences = useRef<Float32Array>(new Float32Array(VISEMES.length));
   const blinkRef = useRef({ next: 2, closing: 0 });

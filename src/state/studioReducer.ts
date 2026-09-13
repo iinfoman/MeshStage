@@ -29,6 +29,7 @@ export const initialState: StudioState = {
   tier: { plan: 'free', rendersLeft: 3, rendersTotal: 10 },
   cloudSave: { status: 'idle', savedAt: null, message: null },
   exportJob: { status: 'idle', formatId: null, progress: 0, message: null },
+  generationError: null,
 };
 
 export type StudioAction =
@@ -41,6 +42,7 @@ export type StudioAction =
   | { type: 'pipelineProgress'; progress: number }
   | { type: 'generationComplete'; character: CharacterAsset }
   | { type: 'cancelGeneration' }
+  | { type: 'generationFailed'; message: string }
   | { type: 'setVoice'; patch: Partial<VoiceSettings> }
   | { type: 'setScript'; script: string }
   | { type: 'setMotion'; motion: MotionPreset }
@@ -117,6 +119,7 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
       return {
         ...state,
         stage: 'processing',
+        generationError: null,
         pipeline: { progress: 0, phase: 'mesh', running: true },
       };
 
@@ -134,6 +137,17 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
         stage: 'voice',
         character: action.character,
         pipeline: { progress: 1, phase: 'blendshape', running: false },
+      };
+
+    case 'generationFailed':
+      // Back to stage 1 with the input intact so the user can retry or swap
+      // the reference, rather than losing what they chose.
+      return {
+        ...state,
+        stage: 'input',
+        character: null,
+        pipeline: { progress: 0, phase: 'mesh', running: false },
+        generationError: action.message,
       };
 
     case 'cancelGeneration':

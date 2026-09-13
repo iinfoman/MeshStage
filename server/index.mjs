@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import * as edge from './providers/edge.mjs';
 import * as espeak from './providers/espeak.mjs';
+import * as reconstruct from './providers/reconstruct.mjs';
 
 /**
  * MeshStage TTS + conversion service.
@@ -121,7 +122,13 @@ const server = createServer(async (req, res) => {
 
   try {
     if (url.pathname === '/health') {
-      return json(res, 200, { ok: true, providers: ENABLED });
+      return json(res, 200, {
+        ok: true,
+        providers: ENABLED,
+        reconstruction: reconstruct.isConfigured()
+          ? (process.env.MESHSTAGE_RECONSTRUCT_PROVIDER ?? 'unknown')
+          : 'not configured',
+      });
     }
 
     if (url.pathname === '/tts/voices' && req.method === 'GET') {
@@ -138,6 +145,19 @@ const server = createServer(async (req, res) => {
         marks: result.marks,
         audio: result.audio.toString('base64'),
       });
+    }
+
+    // --- Image-to-3D reconstruction ----------------------------------------
+    if (url.pathname === '/generate' && req.method === 'POST') {
+      const body = await readJson(req);
+      if (!body.image) throw new HttpError(400, 'image is required');
+      return json(res, 200, await reconstruct.submit({ image: body.image }));
+    }
+
+    if (url.pathname.startsWith('/generate/') && req.method === 'GET') {
+      const job = reconstruct.get(decodeURIComponent(url.pathname.slice('/generate/'.length)));
+      if (!job) throw new HttpError(404, 'No such job');
+      return json(res, 200, job);
     }
 
     if (url.pathname === '/library' && req.method === 'POST') {

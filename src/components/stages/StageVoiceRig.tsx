@@ -66,7 +66,11 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
               />
 
               {character && (
-                <div className="pointer-events-none absolute top-3 left-4 flex flex-wrap items-center gap-1.5">
+                <div
+                  role="status"
+                  aria-label={`Character: ${character.name}, ${character.polycount} triangles, ${character.boneCount} bones, ${character.blendshapeCount} visemes`}
+                  className="pointer-events-none absolute top-3 left-4 flex flex-wrap items-center gap-1.5"
+                >
                   <span className="rounded-full bg-obsidian-950/70 px-3 py-1.5 text-[12.5px] font-medium text-ink-100 backdrop-blur-sm">
                     {character.name}
                   </span>
@@ -84,7 +88,11 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
             </>
           }
         >
-          {character && <Character seed={character.seed} motion={state.motion} />}
+          {character && <Character
+              seed={character.seed}
+              motion={state.motion}
+              appearance={character.appearance}
+            />}
           <StageFloor accent="#22d3ee" />
         </Viewport>
       </div>
@@ -224,6 +232,19 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
               }))}
             />
           </SheetSection>
+
+          {character?.notice && (
+            <p className="rounded-xl bg-warn-400/[0.08] px-3.5 py-2.5 text-[11.5px] leading-relaxed text-warn-400">
+              {character.notice}
+            </p>
+          )}
+
+          {character?.source === 'image' && character.mode === 'local' && (
+            <p className="text-[11px] leading-relaxed text-ink-600">
+              Built from your reference's colours and artwork. This is not a 3D reconstruction of
+              the image — connect a reconstruction service to rebuild geometry from it.
+            </p>
+          )}
 
           {selectedVoice && (
             <p className="text-[11px] text-ink-600">

@@ -20,6 +20,23 @@ export interface CharacterPalette {
   visor: THREE.Color;
 }
 
+/**
+ * Look derived from the user's uploaded reference.
+ *
+ * Supplying this is what makes an upload matter: the palette replaces the
+ * seed-generated one, and `textureDataUrl` is carried onto the character as
+ * artwork. Omit it and the rig falls back to a procedural look.
+ */
+export interface CharacterAppearance {
+  suit: string;
+  accent: string;
+  shade: string;
+  /** 0..1 — brightens the skin tone for light references. */
+  lightness: number;
+  /** Square PNG data URL applied to the chest panel and back. */
+  textureDataUrl?: string;
+}
+
 export interface CharacterRig {
   root: THREE.Group;
   skinned: THREE.SkinnedMesh;
@@ -88,9 +105,9 @@ const VISEME_SHAPE: Record<Viseme, { w: number; h: number; z: number }> = {
   U: { w: 0.66, h: 1.05, z: 1.22 }, // pursed forward
 };
 
-export function createCharacterRig(seed: number): CharacterRig {
+export function createCharacterRig(seed: number, appearance?: CharacterAppearance): CharacterRig {
   const random = makeRandom(seed);
-  const palette = buildPalette(random);
+  const palette = appearance ? paletteFromAppearance(appearance, random) : buildPalette(random);
 
   // Small deterministic proportion drift so two prompts never look identical.
   const build = 0.9 + random() * 0.28;
@@ -306,11 +323,57 @@ export function createCharacterRig(seed: number): CharacterRig {
   bones.chest.add(yoke);
 
   // Chest emblem — reads as a rig landmark in the wireframe preview too.
-  const emblemGeometry = track(new THREE.TorusGeometry(0.06, 0.014, 8, 24));
-  const emblem = new THREE.Mesh(emblemGeometry, accentMaterial);
-  emblem.name = 'ChestEmblem';
-  emblem.position.set(0, 0.04, 0.2);
-  bones.chest.add(emblem);
+  if (appearance?.textureDataUrl) {
+    // The upload, worn. A rounded panel on the chest and a smaller one between
+    // the shoulders, so the reference is visible from either side.
+    const texture = track(new THREE.TextureLoader().load(appearance.textureDataUrl));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+
+    const artMaterial = track(
+      new THREE.MeshStandardMaterial({
+        map: texture,
+        transparent: true,
+        roughness: 0.42,
+        metalness: 0.05,
+        // Emissive lifts the artwork out of the suit's shading so a dark
+        // mascot on a dark suit stays readable.
+        emissive: new THREE.Color('#ffffff'),
+        emissiveMap: texture,
+        emissiveIntensity: 0.55,
+        name: 'MeshStage_Reference',
+      }),
+    );
+
+    const panelGeometry = track(new THREE.PlaneGeometry(0.3, 0.3));
+
+    // The torso's front surface is at z ~0.2 at chest height, so anything
+    // closer than that renders inside the body and never shows.
+    const frontPanel = new THREE.Mesh(panelGeometry, artMaterial);
+    frontPanel.name = 'ReferencePanel_Front';
+    frontPanel.position.set(0, 0.06, 0.222);
+    bones.chest.add(frontPanel);
+
+    const backPanel = new THREE.Mesh(panelGeometry, artMaterial);
+    backPanel.name = 'ReferencePanel_Back';
+    backPanel.position.set(0, 0.06, -0.222);
+    backPanel.rotation.y = Math.PI;
+    backPanel.scale.setScalar(0.62);
+    bones.chest.add(backPanel);
+
+    // A ring of the accent colour frames the panel.
+    const frameGeometry = track(new THREE.TorusGeometry(0.165, 0.013, 8, 32));
+    const frame = new THREE.Mesh(frameGeometry, accentMaterial);
+    frame.name = 'ReferenceFrame';
+    frame.position.set(0, 0.06, 0.216);
+    bones.chest.add(frame);
+  } else {
+    const emblemGeometry = track(new THREE.TorusGeometry(0.06, 0.014, 8, 24));
+    const emblem = new THREE.Mesh(emblemGeometry, accentMaterial);
+    emblem.name = 'ChestEmblem';
+    emblem.position.set(0, 0.04, 0.2);
+    bones.chest.add(emblem);
+  }
 
   // Rest pose: arms down and slightly out, knees soft. The bind pose stays
   // the T-pose the skeleton was built in — this is a posed offset on top, which
@@ -512,6 +575,56 @@ function buildMouthGeometry(): {
   geometry.morphTargetsRelative = false;
 
   return { geometry, visemeIndex };
+}
+
+/**
+ * Builds the character palette out of colours sampled from the upload.
+ *
+ * The suit and accent come straight from the image. Skin is nudged by the
+ * reference's overall lightness rather than taken from it — sampling skin off
+ * a logo produces alarming results.
+ */
+function paletteFromAppearance(
+  appearance: CharacterAppearance,
+  random: () => number,
+): CharacterPalette {
+  const suit = new THREE.Color(appearance.suit);
+  const accent = new THREE.Color(appearance.accent);
+
+  // A suit that is nearly black swallows all shading, and one that is nearly
+  // white blows out under the key light. Pull extremes back into range.
+  const suitHsl = { h: 0, s: 0, l: 0 };
+  suit.getHSL(suitHsl);
+  suit.setHSL(suitHsl.h, Math.min(0.72, suitHsl.s), THREE.MathUtils.clamp(suitHsl.l, 0.16, 0.62));
+
+  // The accent has to read against the suit, so guarantee it is brighter.
+  const accentHsl = { h: 0, s: 0, l: 0 };
+  accent.getHSL(accentHsl);
+
+  // Only lift the accent when it would otherwise disappear into the suit.
+  // Forcing separation unconditionally washed saturated colours out to pastel.
+  const hueGap = Math.min(
+    Math.abs(accentHsl.h - suitHsl.h),
+    1 - Math.abs(accentHsl.h - suitHsl.h),
+  );
+  const tooClose = hueGap < 0.08 && Math.abs(accentHsl.l - suitHsl.l) < 0.18;
+
+  accent.setHSL(
+    accentHsl.h,
+    Math.max(0.62, accentHsl.s),
+    THREE.MathUtils.clamp(tooClose ? suitHsl.l + 0.26 : accentHsl.l, 0.42, 0.68),
+  );
+
+  return {
+    skin: new THREE.Color().setHSL(
+      0.07 + random() * 0.03,
+      0.34,
+      THREE.MathUtils.clamp(0.4 + appearance.lightness * 0.3, 0.38, 0.72),
+    ),
+    suit,
+    accent,
+    visor: accent.clone().offsetHSL(0.04, 0, 0.08),
+  };
 }
 
 function buildPalette(random: () => number): CharacterPalette {

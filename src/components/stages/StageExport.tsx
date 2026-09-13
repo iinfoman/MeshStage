@@ -59,14 +59,22 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
               />
               {state.transparentBackground && <TransparencyChecker />}
               {character && (
-                <div className="pointer-events-none absolute top-3 left-4 rounded-full bg-obsidian-950/70 px-3 py-1.5 text-[12.5px] font-medium text-ink-100 backdrop-blur-sm">
+                <div
+                  role="status"
+                  aria-label={`Character: ${character.name}`}
+                  className="pointer-events-none absolute top-3 left-4 rounded-full bg-obsidian-950/70 px-3 py-1.5 text-[12.5px] font-medium text-ink-100 backdrop-blur-sm"
+                >
                   {character.name}
                 </div>
               )}
             </>
           }
         >
-          {character && <Character seed={character.seed} motion={state.motion} />}
+          {character && <Character
+              seed={character.seed}
+              motion={state.motion}
+              appearance={character.appearance}
+            />}
           {!state.transparentBackground && <StageFloor accent="#3b82f6" />}
         </Viewport>
       </div>

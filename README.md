@@ -188,15 +188,52 @@ RLS is what protects the data.
 Guest accounts need **Anonymous sign-ins** enabled under Supabase →
 Authentication → Providers; magic links work out of the box.
 
+### What an upload actually does
+
+An earlier build seeded the character from `hashString(\`image:${filename}\`)` —
+**the pixels were never opened.** Every upload produced the same body, renaming
+a file produced a different character, and two different pictures with the same
+name produced identical ones. That is fixed; there are now two paths.
+
+**Local (default, no key, no cost).** `imageAnalysis.ts` decodes the upload and
+samples it: buckets the pixels to find the dominant saturated colour and a
+contrasting accent, measures lightness, detects transparency, crops the artwork
+to its content bounding box, and hashes every pixel for the seed. The result
+drives the suit, trim and visor colours, and the artwork is carried onto the
+character as a chest and back panel.
+
+This is honest about its limits: it is **your colours and artwork on a
+procedural body, not a 3D reconstruction of your image**. The studio says so on
+stage 3 rather than implying otherwise.
+
+**Service (real reconstruction, needs a key).** Set `VITE_MESHSTAGE_GEN_API` and
+configure a provider in `server/providers/reconstruct.mjs`:
+
+| `MESHSTAGE_RECONSTRUCT_PROVIDER` | Key | Notes |
+|---|---|---|
+| `meshy` | `MESHY_API_KEY` | Image-to-3D, also offers a rigging pass |
+| `tripo` | `TRIPO_API_KEY` | Image-to-3D |
+| `fal` | `FAL_API_KEY` | TripoSR / Hunyuan3D endpoints; set `FAL_MODEL` |
+
+These bill per generation. The client submits, polls, and falls back to the
+local path if the provider is unreachable — with a notice, never silently.
+
+**One caveat worth knowing before you pay for it:** image-to-3D returns
+*geometry*, not a rig. Unless the provider also runs a rigging pass, the mesh
+arrives with no skeleton and no viseme blendshapes, which is what lip-sync
+depends on. The job reports `rigged` so the studio can tell you.
+
+Guaranteed by tests: two different images produce different characters, the
+same image under a different name produces the *same* character, and the
+rendered frame carries the reference's palette.
+
 ### What is still NOT production-ready
 
 The pipeline, rig, lip-sync, exports and now metering are real. What remains:
 
-- **Character generation is simulated.** `useGenerationPipeline.ts` runs a
-  timed progress bar and `characterFactory.ts` builds a procedural mesh from a
-  hash of the input. No image or prompt is reconstructed into geometry. This is
-  the single biggest gap — it is the product's core promise, and it needs a
-  real reconstruction service behind it.
+- **Uploads style the character; they are not reconstructed into geometry.**
+  See below — the local path is real but it is not image-to-3D, and the
+  provider path needs a key.
 - **No payments.** `apply_plan_change()` is the seam a webhook would call; the
   "Upgrade" button does not yet reach it.
 - **Credits never refill.** `period_started_at` exists for a monthly reset job

@@ -1,6 +1,8 @@
-import { useMemo } from 'react';
 import { Viewport } from '../../three/Viewport';
 import { RiggingPreview } from '../../three/RiggingPreview';
+import { analyzeImage } from '../../lib/imageAnalysis';
+import { useEffect, useState } from 'react';
+import type { CharacterAppearance } from '../../three/characterFactory';
 import { ActionBar } from '../ActionBar';
 import { Button } from '../Button';
 import { TrashIcon } from '../icons';
@@ -14,17 +16,44 @@ export function StageProcessing({ onConfirm }: { onConfirm: (request: ConfirmReq
   const { state, dispatch } = useStudio();
   const { progress, phase } = state.pipeline;
 
-  // Preview the seed the finished character will use, so the wireframe the
-  // user watches assemble is the mesh they end up with.
-  const seed = useMemo(
-    () =>
-      hashString(
-        state.inputMode === 'image'
-          ? `image:${state.imageName ?? 'reference.jpg'}`
-          : `prompt:${state.prompt.trim()}`,
-      ),
-    [state.inputMode, state.imageName, state.prompt],
-  );
+  // Preview the asset the finished character will use, so the wireframe the
+  // user watches assemble is the mesh they end up with. For an upload that
+  // means reading the same pixels the generator reads.
+  const [preview, setPreview] = useState<{ seed: number; appearance?: CharacterAppearance }>(() => ({
+    seed: hashString(`prompt:${state.prompt.trim()}`),
+  }));
+
+  useEffect(() => {
+    if (state.inputMode !== 'image' || !state.imageDataUrl) {
+      setPreview({ seed: hashString(`prompt:${state.prompt.trim()}`) });
+      return;
+    }
+
+    let cancelled = false;
+    void analyzeImage(state.imageDataUrl)
+      .then((analysis) => {
+        if (cancelled) return;
+        setPreview({
+          seed: analysis.contentHash,
+          appearance: {
+            suit: analysis.dominant,
+            accent: analysis.accent,
+            shade: analysis.shade,
+            lightness: analysis.lightness,
+            textureDataUrl: analysis.textureDataUrl,
+          },
+        });
+      })
+      .catch(() => {
+        // The generator surfaces the real error; the preview just stays generic.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.inputMode, state.imageDataUrl, state.prompt]);
+
+  const seed = preview.seed;
 
   const percent = Math.round(progress * 100);
   const activeIndex = PIPELINE_PHASES.findIndex((entry) => entry.id === phase);
@@ -63,7 +92,12 @@ export function StageProcessing({ onConfirm }: { onConfirm: (request: ConfirmReq
             </>
           }
         >
-          <RiggingPreview seed={seed} progress={progress} phase={phase} />
+          <RiggingPreview
+            seed={seed}
+            progress={progress}
+            phase={phase}
+            appearance={preview.appearance}
+          />
         </Viewport>
 
         <div className="shrink-0 px-4 pb-3">
