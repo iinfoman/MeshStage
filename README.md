@@ -132,6 +132,49 @@ error rather than failing, and the studio falls back to the device's own voices.
 FBX conversion returns 501 there — the Autodesk FBX SDK cannot run in a
 serverless function.
 
+## Going to production
+
+### What's ready to serve real users
+
+The frontend is a static bundle — any CDN host works, with no special
+requirements beyond serving `dist/` and falling back to `index.html`:
+
+| Host | How |
+|---|---|
+| **Netlify** | Connect the repo. `netlify.toml` configures build, publish and the `/api` function. Neural voices work with no extra setup. |
+| **Vercel** | Framework preset "Vite". Port `netlify/functions/api.mts` to `api/[...path].ts` for TTS. |
+| **Cloudflare Pages** | Build `npm run build`, output `dist`. Port the function to a Pages Function. |
+| **GitHub Pages** | Static only — device voices, no TTS service. |
+
+The TTS service is verified working: CI fetches **322 Edge neural voices** and
+synthesises real audio on every push.
+
+### What is NOT production-ready
+
+Be clear-eyed about this before putting it in front of paying users. The
+pipeline, rig, lip-sync and exports are real. The commercial layer is not:
+
+- **Character generation is simulated.** `useGenerationPipeline.ts` runs a
+  timed progress bar and `characterFactory.ts` builds a procedural mesh from a
+  hash of the input. No image or prompt is reconstructed into geometry. This is
+  the single biggest gap — it is the product's core promise, and it needs a
+  real reconstruction service behind it.
+- **There is no auth.** Every session is anonymous.
+- **Credits are client-side state.** `tier.rendersLeft` lives in a React
+  reducer. A refresh restores them and devtools can set them to anything. It
+  demonstrates the metering UX; it does not enforce anything. Real metering has
+  to be server-side, keyed to an authenticated user.
+- **No payments.** "Upgrade" flips a local flag.
+- **The cloud library does not persist.** Without a backend it writes to
+  `localStorage`; the reference endpoint accepts and discards.
+- **FBX is unimplemented.** The client posts glTF to a conversion service that
+  has to exist and run the FBX SDK.
+- **No rate limiting on the TTS endpoint.** As written, anyone who finds the
+  URL can drive synthesis at your cost.
+
+A reasonable order to close these: auth → server-side credits → payments →
+real generation backend → FBX conversion.
+
 ## Architecture
 
 ```
@@ -317,7 +360,8 @@ Checked in a headless Chromium at iPhone viewport, against the live service:
   `espeak-ng` installed reports 13,363 voices to Chromium, which the
   dedupe/cap reduces to 131.
 
-**Not verified here:** the `edge` provider. This sandbox's egress proxy blocks
-`speech.platform.bing.com`, so the Edge-TTS path is written to the protocol but
-has not been exercised against the live service. The `espeak` provider — and
-every client-side path both providers share — is verified as above.
+**Edge-TTS is verified in CI**, not in the sandbox this was built in: that
+environment's egress proxy blocks `speech.platform.bing.com`. The GitHub runner
+has open egress and fetches 322 neural voices with no errors, so the protocol
+implementation — token, handshake and headers — is confirmed against the live
+service.
