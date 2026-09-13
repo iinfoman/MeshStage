@@ -10,7 +10,10 @@
     "preview": "vite preview --host",
     "typecheck": "tsc -b --noEmit",
     "server": "node server/index.mjs",
-    "build:deploy": "VITE_MESHSTAGE_API=/api npm run build"
+    "build:deploy": "VITE_MESHSTAGE_API=/api npm run build",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "build:pages": "vite build --base=/MeshStage/"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
@@ -20,6 +23,8 @@
     "three": "^0.170.0"
   },
   "devDependencies": {
+    "@netlify/functions": "^2.8.2",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.1.13",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -27,7 +32,6 @@
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.6.3",
-    "vite": "^6.0.7",
-    "@netlify/functions": "^2.8.2"
+    "vite": "^6.0.7"
   }
 }

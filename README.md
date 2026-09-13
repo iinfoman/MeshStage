@@ -73,6 +73,41 @@ That difference is visible in the output. Same scene, same script:
 
 The UI says which you are getting *before* you spend a render credit.
 
+## Testing it
+
+```bash
+npm test          # the full suite against a production build
+npm run test:ui   # Playwright's UI mode, for watching it drive
+```
+
+15 specs at an iPhone 14 Pro viewport, run against a production build rather
+than the dev server — WebGL setup, chunk loading and exporter output all behave
+differently once Vite has bundled and minified them.
+
+The export specs assert on the in-page verification panel, which parses the
+bytes the exporter actually produced. That makes them real format tests: a
+regression in the skeleton bind, the morph targets or the video muxing fails
+here instead of shipping a file that only looks right by its size.
+
+`CHROMIUM_PATH` points the runner at a preinstalled browser when the
+environment provides one; otherwise Playwright uses its own.
+
+### In GitHub
+
+Three workflows, all runnable from the Actions tab:
+
+| Workflow | What it gives you |
+|---|---|
+| **CI** | Typecheck, build, and the 15 specs on every push. Uploads the Playwright HTML report as an artifact. |
+| **CI → TTS service** | Boots `server/index.mjs` with espeak-ng and asserts the catalogue and synthesis return real audio. Also probes Edge reachability (informational — it won't fail the build). |
+| **Deploy to GitHub Pages** | Publishes the studio to `https://<owner>.github.io/MeshStage/`. |
+
+GitHub Pages is static, so a Pages deploy has **no TTS service** — the studio
+falls back to device voices, which is the full experience on a phone minus
+neural voices and audio in video exports. For those, deploy to Netlify (below)
+or open the repo in a Codespace, where `.devcontainer/devcontainer.json`
+installs espeak-ng and forwards both ports.
+
 ## Deploying it somewhere testable
 
 The repo carries a `netlify.toml` and one serverless function, so a Netlify

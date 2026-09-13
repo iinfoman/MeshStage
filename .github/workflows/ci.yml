@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # Only Chromium: the suite targets an iPhone-sized viewport and the
+      # WebGL/export paths, none of which need a second engine to be meaningful.
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the pipeline and export suite
+        run: npm test
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+  tts-service:
+    name: TTS service smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # GitHub runners have open egress, so unlike the sandbox this was built
+      # in, the Edge provider can actually reach Microsoft here.
+      - name: Install espeak-ng
+        run: sudo apt-get update && sudo apt-get install -y espeak-ng
+
+      - name: Start the service
+        run: |
+          node server/index.mjs &
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8787/health && break
+            sleep 1
+          done
+
+      - name: Voice catalogue responds
+        run: |
+          curl -sf http://127.0.0.1:8787/tts/voices \
+            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+                const j=JSON.parse(d);
+                console.log("voices:", j.voices.length, "| errors:", JSON.stringify(j.errors));
+                if (!j.voices.length) { console.error("no voices from any provider"); process.exit(1); }
+              })'
+
+      - name: Synthesis returns real audio
+        run: |
+          curl -sf -X POST http://127.0.0.1:8787/tts/synthesize \
+            -H 'Content-Type: application/json' \
+            -d '{"text":"MeshStage continuous integration check.","voiceId":"en-us"}' \
+            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+                const j=JSON.parse(d);
+                const buf=Buffer.from(j.audio,"base64");
+                console.log("provider:", j.provider, "| bytes:", buf.length, "| duration:", j.durationMs+"ms", "| marks:", j.marks.length);
+                if (buf.length < 1000) { console.error("audio payload too small"); process.exit(1); }
+                if (!j.durationMs || j.durationMs > 60000) { console.error("implausible duration: " + j.durationMs); process.exit(1); }
+              })'
+
+      - name: Edge provider reachability (informational)
+        continue-on-error: true
+        run: |
+          MESHSTAGE_TTS_PROVIDERS=edge PORT=8788 node server/index.mjs &
+          sleep 3
+          echo "Edge voice catalogue:"
+          curl -sf http://127.0.0.1:8788/tts/voices \
+            | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+                const j=JSON.parse(d);
+                console.log("edge voices:", j.voices.length, "| errors:", JSON.stringify(j.errors));
+              })'

@@ -35,7 +35,12 @@ export function StepBar({ current, onNavigate, navigable = [] }: StepBarProps) {
                 onClick={canNavigate ? () => onNavigate?.(stage.id) : undefined}
                 aria-current={active ? 'step' : undefined}
                 className={cn(
-                  'flex h-9 items-center gap-2 rounded-full px-2.5 transition-colors duration-300',
+                  // The pill reads better at 36px than at 48, so the visual
+                  // stays small and an ::after overlay carries the touch
+                  // target out to the 48px thumb floor. Tapping just above or
+                  // below the pill still activates it.
+                  'relative flex h-9 items-center gap-2 rounded-full px-2.5 transition-colors duration-300',
+                  'after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-[""]',
                   active && 'w-full bg-gradient-to-r from-beam-500/16 to-pulse-500/10 ring-1 ring-beam-500/28',
                   !active && done && 'bg-obsidian-800/70',
                   !active && !done && 'bg-obsidian-850/50',

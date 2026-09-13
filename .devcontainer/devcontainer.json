@@ -1,0 +1,25 @@
+{
+  "name": "MeshStage Studio",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" }
+  },
+
+  // espeak-ng gives the TTS service a local provider, so neural voices work
+  // even before the Edge provider is reachable.
+  "onCreateCommand": "sudo apt-get update && sudo apt-get install -y espeak-ng",
+  "postCreateCommand": "npm install",
+
+  "forwardPorts": [5173, 8787],
+  "portsAttributes": {
+    "5173": { "label": "MeshStage Studio", "onAutoForward": "openBrowser" },
+    "8787": { "label": "TTS service", "onAutoForward": "silent" }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "bradlc.vscode-tailwindcss"]
+    }
+  }
+}
