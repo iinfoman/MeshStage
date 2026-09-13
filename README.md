@@ -31,15 +31,47 @@ To test on a real phone, run `npm run dev` and open the network URL Vite prints
 on a device on the same Wi-Fi. The iOS audio guard and the dynamic-viewport
 behaviour only exercise properly on actual hardware.
 
-### Optional backend
+### The TTS service
+
+`server/` is a dependency-free Node service (Node 22's built-in `fetch` and
+`WebSocket` cover everything) providing neural voices and the cloud library:
 
 ```bash
-VITE_MESHSTAGE_API=https://api.example.com   # enables FBX conversion + cloud library
+node server/index.mjs                       # http://localhost:8787
+VITE_MESHSTAGE_API=http://localhost:8787 npm run dev
 ```
 
-Unset, the app still works end to end: GLB, USDZ, video and JSON all export
-locally, and the cloud library falls back to `localStorage`. FBX reports honestly
-that it needs the conversion service (see [Exports](#exports)).
+Two providers, tried in order (`MESHSTAGE_TTS_PROVIDERS=edge,espeak`):
+
+- **`edge`** — Microsoft Edge read-aloud neural voices. Sounds good, and emits
+  `WordBoundary` marks that give real per-word viseme timing.
+- **`espeak`** — local `espeak-ng` (`apt install espeak-ng`). Robotic, but
+  offline, deterministic, and the right thing to develop and run CI against.
+
+With no service configured the studio still works end to end on device voices,
+and the cloud library falls back to `localStorage`.
+
+### Why a service at all, when browsers have `speechSynthesis`
+
+Two reasons, and the second is the load-bearing one:
+
+1. **Consistency.** System voices vary wildly between an iPhone, a Pixel and a
+   desktop, so the same character never sounds twice alike.
+2. **The audio is reachable.** `speechSynthesis` output cannot be routed into
+   WebAudio on any current browser — you cannot analyse it, and you cannot
+   record it. Service audio is a plain buffer, so it plays through an
+   `AudioBufferSourceNode` that is also tapped into a
+   `MediaStreamAudioDestinationNode` — which is what lets the video export
+   contain sound.
+
+That difference is visible in the output. Same scene, same script:
+
+| Voice | Export note | Tracks in the file |
+|---|---|---|
+| Neural (service) | "Video and audio captured." | `vide`, `soun` |
+| System (device) | "Video captured (system voices record silent)." | `vide` |
+
+The UI says which you are getting *before* you spend a render credit.
 
 ## Architecture
 
@@ -50,8 +82,8 @@ src/
     StudioContext.tsx     Wires reducer + audio unlock + lip-sync + scene handles
   hooks/
     useAudioUnlock.ts     iOS Safari WebAudio gesture handshake
-    useLipSync.ts         Viseme playhead, shared with the render loop
-    useSpeechVoices.ts    System/neural voice catalogue
+    useLipSync.ts         Viseme playhead + system/neural playback
+    useVoiceCatalogue.ts  Merged device + service voice list
     useGenerationPipeline.ts  Stage-2 progress driver (swap for your backend)
     useExportRunner.ts    Export orchestration, credit metering
   three/
@@ -61,8 +93,13 @@ src/
     FitCamera.tsx         Bounding-box camera framing
     Viewport.tsx          Canvas shell, mobile perf guards
   lib/
-    visemes.ts            Text → viseme timeline, sampling, JSON export shape
+    visemes.ts            Text → viseme timeline, retiming, JSON export shape
+    tts.ts                Neural TTS client
     exporters.ts          GLB · USDZ · video · JSON · FBX dispatch
+server/
+  index.mjs               TTS + library service (no dependencies)
+  providers/edge.mjs      Edge-TTS neural voices
+  providers/espeak.mjs    Local espeak-ng fallback
   components/
     stages/               One file per pipeline stage
 ```
@@ -121,9 +158,22 @@ keystroke on a mid-range phone.
 
 Playback runs off a mutable clock object the render loop samples 60×/second.
 Keeping the playhead out of React state is deliberate: re-rendering the tree per
-frame would put the viewport well under 60fps. Where the browser emits
-`onboundary` word events (Chrome, Edge) the clock re-anchors to the real engine
-timings; Safari doesn't emit them, so the estimate is the baseline.
+frame would put the viewport well under 60fps.
+
+The estimate gets mouth *shapes* right but only guesses timing, so once real
+audio exists `retimeTimeline()` re-anchors it, best source first:
+
+1. **Word-boundary marks** (Edge-TTS, and Chrome's `onboundary`) — each word's
+   visemes are redistributed across that word's real start and duration, so
+   drift cannot accumulate across a long script.
+2. **Total duration** (espeak, Safari) — one scale factor for the whole
+   timeline. Cruder, but still beats an estimate that can be 20% out at an
+   unusual rate.
+
+**Watchdog.** Playback never relies on `onend` alone. Safari drops it on long
+utterances, and a Linux `speech-dispatcher` with no audio sink never fires it at
+all — in both cases the mouth would animate forever with Stop as the only way
+out. Every take arms a timeout at `duration + 1.5s`.
 
 ### Exports
 
@@ -131,7 +181,7 @@ timings; Safari doesn't emit them, so the estimate is the baseline.
 |---|---|---|
 | `.GLB` | Browser | Full skeleton, blendshapes, PBR materials |
 | `.USDZ` | Browser | AR Quick Look |
-| `.MP4 / .WEBM` | Browser | `captureStream()` + `MediaRecorder`; metered |
+| `.MP4 / .WEBM` | Browser | `captureStream()` + `MediaRecorder`; audio muxed on neural voices; metered |
 | `.JSON` | Browser | Viseme timeline with ms offsets and weights |
 | `.FBX` | Service | See below |
 
@@ -143,10 +193,10 @@ skeleton and morph targets and imports directly into Blender and Unity. It does
 not fake a download.
 
 **On video audio:** the capture is real — `captureStream()` on the live viewport,
-so the file contains the frames the user just watched. The TTS audio is *not*
-muxed in: `speechSynthesis` output doesn't route through WebAudio on any current
-browser, so there is no stream to attach. Audio muxing and the true
-transparent-background pass belong in the cloud renderer.
+so the file contains the frames the user just watched. Audio is muxed in when a
+neural voice drove the take, and omitted (with the UI saying so) when a device
+voice did, for the `speechSynthesis` reason above. The true
+transparent-background pass still belongs in the cloud renderer.
 
 ## Mobile specifics
 
@@ -190,3 +240,25 @@ a phone it is almost always an accidental scroll.
   `visemeIndex`).
 - `exporters.ts` — `saveToCloudLibrary` and the FBX branch already speak to
   `VITE_MESHSTAGE_API`.
+- `server/providers/` — add a provider by exporting `listVoices()` and
+  `synthesize()`; returning word-boundary marks gets you the better timing path
+  for free.
+
+## Verification status
+
+Checked in a headless Chromium at iPhone viewport, against the live service:
+
+- Full pipeline runs clean, no console errors; GLB export carries 13 named
+  joints with `JOINTS_0`/`WEIGHTS_0` plus 15 named viseme targets.
+- Neural speech: 358ms synthesis, playback measured at 2814ms against the
+  service's reported 2857ms of audio, ending on its own.
+- Video export track table verified by parsing the MP4 box structure —
+  `vide`+`soun` with a neural voice, `vide` only with a device voice.
+- Voice catalogue capping verified against a pathological host: a box with
+  `espeak-ng` installed reports 13,363 voices to Chromium, which the
+  dedupe/cap reduces to 131.
+
+**Not verified here:** the `edge` provider. This sandbox's egress proxy blocks
+`speech.platform.bing.com`, so the Edge-TTS path is written to the protocol but
+has not been exercised against the live service. The `espeak` provider — and
+every client-side path both providers share — is verified as above.

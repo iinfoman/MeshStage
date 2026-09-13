@@ -9,14 +9,14 @@ import { PillGroup, Slider } from '../Controls';
 import { AudioUnlockOverlay } from '../AudioUnlockOverlay';
 import { ArrowRightIcon, BoneIcon, ChevronDownIcon, CubeIcon, PlayIcon, StopIcon, TrashIcon } from '../icons';
 import { useStudio } from '../../state/StudioContext';
-import { useSpeechVoices } from '../../hooks/useSpeechVoices';
+import { useVoiceCatalogue } from '../../hooks/useVoiceCatalogue';
 import { formatDuration } from '../../lib/utils';
 import { MOTION_PRESETS, type MotionPreset } from '../../types/studio';
 import type { ConfirmRequest } from '../ConfirmDialog';
 
 export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmRequest) => void }) {
   const { state, dispatch, audio, lipSync } = useStudio();
-  const { groups, ready: voicesReady } = useSpeechVoices();
+  const { groups, count: voiceCount, ready: voicesReady, notice } = useVoiceCatalogue();
   const character = state.character;
 
   // Pick a sensible default voice as soon as the catalogue lands: the device
@@ -25,12 +25,15 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
     if (state.voice.voiceURI || groups.length === 0) return;
     const preferred = groups[0]?.voices[0];
     if (preferred) {
-      dispatch({ type: 'setVoice', patch: { voiceURI: preferred.voiceURI, lang: preferred.lang } });
+      dispatch({
+        type: 'setVoice',
+        patch: { voiceURI: preferred.id, lang: preferred.lang, provider: preferred.provider },
+      });
     }
   }, [groups, state.voice.voiceURI, dispatch]);
 
   const selectedVoice = useMemo(
-    () => groups.flatMap((group) => group.voices).find((voice) => voice.voiceURI === state.voice.voiceURI),
+    () => groups.flatMap((group) => group.voices).find((voice) => voice.id === state.voice.voiceURI),
     [groups, state.voice.voiceURI],
   );
 
@@ -90,25 +93,34 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
         <div className="scroll-pane space-y-5 px-4 pb-4">
           <SheetSection
             title="Voice model"
-            hint={voicesReady ? `${groups.reduce((sum, group) => sum + group.voices.length, 0)} available` : 'Loading…'}
+            hint={voicesReady ? `${voiceCount} available` : 'Loading…'}
           >
             <div className="relative">
               <select
                 value={state.voice.voiceURI}
                 onChange={(event) => {
                   const voiceURI = event.target.value;
-                  const match = groups.flatMap((group) => group.voices).find((voice) => voice.voiceURI === voiceURI);
-                  dispatch({ type: 'setVoice', patch: { voiceURI, lang: match?.lang ?? state.voice.lang } });
+                  const match = groups
+                    .flatMap((group) => group.voices)
+                    .find((candidate) => candidate.id === voiceURI);
+                  dispatch({
+                    type: 'setVoice',
+                    patch: {
+                      voiceURI,
+                      lang: match?.lang ?? state.voice.lang,
+                      provider: match?.provider ?? 'system',
+                    },
+                  });
                 }}
                 className="min-h-touch w-full appearance-none rounded-2xl border border-obsidian-700 bg-obsidian-850/80 px-4 pr-11 text-[14.5px] text-ink-100 focus:border-beam-500/50 focus:outline-none"
               >
                 {groups.length === 0 && <option value="">No system voices detected</option>}
                 {groups.map((group) => (
-                  <optgroup key={group.lang} label={group.label}>
+                  <optgroup key={group.key} label={group.label}>
                     {group.voices.map((voice) => (
-                      <option key={voice.voiceURI} value={voice.voiceURI}>
+                      <option key={`${voice.provider}:${voice.id}`} value={voice.id}>
                         {voice.name}
-                        {voice.localService ? '' : ' · neural'}
+                        {voice.neural ? ' · neural' : ''}
                       </option>
                     ))}
                   </optgroup>
@@ -138,10 +150,21 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
               />
             </div>
 
+            {notice && (
+              <p className="text-[11.5px] leading-relaxed text-warn-400/90">{notice}</p>
+            )}
+
             {groups.length === 0 && voicesReady && (
               <p className="text-[11.5px] leading-relaxed text-warn-400/90">
                 No TTS engine found on this device. The rig still previews the viseme timeline
-                silently, and cloud rendering uses server-side neural voices.
+                silently — connect the MeshStage TTS service for neural voices.
+              </p>
+            )}
+
+            {selectedVoice?.provider === 'system' && (
+              <p className="text-[11.5px] leading-relaxed text-ink-600">
+                Device voices can't be recorded into video exports. Pick a neural voice if you
+                need a talking video with sound.
               </p>
             )}
           </SheetSection>
@@ -165,11 +188,28 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
               variant={lipSync.speaking ? 'secondary' : 'outline'}
               block
               disabled={speakDisabled}
-              icon={lipSync.speaking ? <StopIcon className="size-[17px]" /> : <PlayIcon className="size-[17px]" />}
-              onClick={() => (lipSync.speaking ? lipSync.stop() : lipSync.speak())}
+              loading={lipSync.loading}
+              icon={
+                lipSync.speaking ? (
+                  <StopIcon className="size-[17px]" />
+                ) : (
+                  <PlayIcon className="size-[17px]" />
+                )
+              }
+              onClick={() => (lipSync.speaking || lipSync.loading ? lipSync.stop() : lipSync.speak())}
             >
-              {lipSync.speaking ? 'Stop preview' : 'Preview lip-sync'}
+              {lipSync.loading
+                ? 'Synthesizing…'
+                : lipSync.speaking
+                  ? 'Stop preview'
+                  : 'Preview lip-sync'}
             </Button>
+
+            {lipSync.error && (
+              <p role="alert" className="text-[11.5px] leading-relaxed text-danger-400">
+                {lipSync.error}
+              </p>
+            )}
           </SheetSection>
 
           <SheetSection title="Motion preset" hint="Idle loop">
@@ -188,7 +228,8 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
           {selectedVoice && (
             <p className="text-[11px] text-ink-600">
               Rendering with <span className="text-ink-500">{selectedVoice.name}</span> ·{' '}
-              {selectedVoice.lang}
+              {selectedVoice.lang} ·{' '}
+              {selectedVoice.provider === 'system' ? 'device engine' : `${selectedVoice.provider} service`}
             </p>
           )}
         </div>

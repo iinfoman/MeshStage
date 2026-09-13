@@ -39,7 +39,7 @@ const StudioContext = createContext<StudioContextValue | null>(null);
 export function StudioProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(studioReducer, initialState);
   const audio = useAudioUnlock();
-  const lipSync = useLipSync(state.script, state.voice);
+  const lipSync = useLipSync(state.script, state.voice, audio);
   const scene = useRef<SceneHandles>({ rig: null, canvas: null });
 
   useGenerationPipeline(state, dispatch);

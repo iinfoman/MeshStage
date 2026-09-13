@@ -47,6 +47,7 @@ export function useExportRunner(): ExportRunnerApi {
           voiceLabel: state.voice.voiceURI || state.voice.lang,
           timeline: lipSync.timeline,
           transparentBackground: state.transparentBackground,
+          getAudioStream: lipSync.getAudioStream,
           onProgress: (progress) => dispatch({ type: 'exportProgress', progress }),
           playTake:
             formatId === 'video'

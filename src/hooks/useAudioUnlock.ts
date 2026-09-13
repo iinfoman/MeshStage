@@ -17,7 +17,9 @@ export interface AudioUnlockApi {
   /** True when we know a gesture is required and haven't received one yet. */
   needsGesture: boolean;
   unlock: () => Promise<void>;
-  context: AudioContext | null;
+  /** Live accessor — the context is created in an effect, so a value captured
+   *  at render time is null on the first paint. */
+  getContext: () => AudioContext | null;
 }
 
 /**
@@ -117,5 +119,7 @@ export function useAudioUnlock(): AudioUnlockApi {
     setNeedsGesture(false);
   }, []);
 
-  return { unlocked, needsGesture, unlock, context: contextRef.current };
+  const getContext = useCallback(() => contextRef.current, []);
+
+  return { unlocked, needsGesture, unlock, getContext };
 }

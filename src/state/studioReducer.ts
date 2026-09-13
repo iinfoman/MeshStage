@@ -21,7 +21,7 @@ export const initialState: StudioState = {
   imageName: null,
   pipeline: { progress: 0, phase: 'mesh', running: false },
   character: null,
-  voice: { voiceURI: '', lang: 'en-US', rate: 1, pitch: 1 },
+  voice: { voiceURI: '', lang: 'en-US', rate: 1, pitch: 1, provider: 'system' },
   script: DEFAULT_SCRIPT,
   motion: 'talking',
   selectedFormat: 'glb',

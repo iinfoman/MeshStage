@@ -18,6 +18,8 @@ export interface ExportContext {
   transparentBackground: boolean;
   /** Starts the lip-sync take; the video recorder waits on its promise. */
   playTake?: () => Promise<void>;
+  /** Audio track of the take, when the neural TTS path is driving playback. */
+  getAudioStream?: () => MediaStream | null;
   onProgress?: (progress: number) => void;
 }
 
@@ -200,10 +202,15 @@ export function pickVideoMimeType(): { mimeType: string; extension: string } | n
  * Records the live viewport while the lip-sync take plays.
  *
  * This is a real client-side capture via `captureStream()`, so what lands in
- * the file is exactly the frames the user just watched. The TTS audio is not
- * muxed in: `speechSynthesis` output does not route through WebAudio on any
- * current browser, so there is no stream to attach. The cloud renderer is
- * where audio muxing and the transparent-background pass belong.
+ * the file is exactly the frames the user just watched.
+ *
+ * Audio depends on which engine spoke the take. Neural voices render through
+ * WebAudio, so their output is tapped off a `MediaStreamAudioDestinationNode`
+ * and muxed straight into the recording. System voices go through
+ * `speechSynthesis`, whose output no current browser routes into WebAudio —
+ * those takes record silent, and the UI says so before the user spends a
+ * render credit. The transparent-background pass still belongs to the cloud
+ * renderer either way.
  */
 async function exportVideo(context: ExportContext): Promise<ExportResult> {
   const canvas = context.canvas;
@@ -215,9 +222,21 @@ async function exportVideo(context: ExportContext): Promise<ExportResult> {
   }
 
   const stream = canvas.captureStream(30);
+
+  // Mux the spoken audio in when the neural path is driving playback. The
+  // browser's own speechSynthesis cannot be routed into WebAudio, so with a
+  // system voice there is no track to add and the file is video-only.
+  const audioStream = context.getAudioStream?.() ?? null;
+  let hasAudio = false;
+  for (const track of audioStream?.getAudioTracks() ?? []) {
+    stream.addTrack(track);
+    hasAudio = true;
+  }
+
   const recorder = new MediaRecorder(stream, {
     mimeType: codec.mimeType,
     videoBitsPerSecond: 6_000_000,
+    ...(hasAudio ? { audioBitsPerSecond: 128_000 } : {}),
   });
 
   const chunks: Blob[] = [];
@@ -250,7 +269,10 @@ async function exportVideo(context: ExportContext): Promise<ExportResult> {
   } finally {
     window.clearInterval(ticker);
     if (recorder.state !== 'inactive') recorder.stop();
-    for (const track of stream.getTracks()) track.stop();
+    // Only stop the canvas track. The audio track belongs to the lip-sync
+    // engine's reusable capture node — stopping it would kill every later take.
+    for (const track of stream.getVideoTracks()) track.stop();
+    for (const track of stream.getAudioTracks()) stream.removeTrack(track);
   }
 
   await finished;
@@ -260,14 +282,10 @@ async function exportVideo(context: ExportContext): Promise<ExportResult> {
   downloadBlob(blob, filename);
   context.onProgress?.(1);
 
-  return {
-    filename,
-    bytes: blob.size,
-    local: true,
-    note: context.transparentBackground
-      ? 'Video track captured. Alpha matte is applied by the cloud renderer.'
-      : 'Video track captured from the live viewport.',
-  };
+  const notes = [hasAudio ? 'Video and audio captured.' : 'Video captured (system voices record silent).'];
+  if (context.transparentBackground) notes.push('Alpha matte is applied by the cloud renderer.');
+
+  return { filename, bytes: blob.size, local: true, note: notes.join(' ') };
 }
 
 /**

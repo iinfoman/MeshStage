@@ -282,3 +282,81 @@ export function timelineToExport(
     })),
   };
 }
+
+export interface RetimeSource {
+  /** Word-boundary marks from the TTS engine, if it emits any. */
+  marks?: Array<{ timeMs: number; durationMs: number }>;
+  /** True length of the rendered audio, in milliseconds. */
+  durationMs?: number;
+}
+
+/**
+ * Re-anchors an estimated timeline onto real audio.
+ *
+ * The grapheme estimate gets mouth *shapes* right but only guesses at timing.
+ * Once we have the actual audio there are two better sources, in order:
+ *
+ *  1. Word-boundary marks (Edge-TTS emits these) — each word's visemes are
+ *     redistributed across that word's real start and duration, so drift can
+ *     never accumulate across a long script.
+ *  2. Total duration alone (espeak, and anything else without marks) — the
+ *     whole timeline is scaled by one factor. Cruder, but it still beats an
+ *     estimate that can be 20% out on an unusual voice or rate.
+ */
+export function retimeTimeline(timeline: VisemeTimeline, source: RetimeSource): VisemeTimeline {
+  const { marks, durationMs } = source;
+
+  if (marks && marks.length > 0) {
+    const byWord = new Map<number, VisemeKey[]>();
+    for (const key of timeline.keys) {
+      const bucket = byWord.get(key.wordIndex);
+      if (bucket) bucket.push(key);
+      else byWord.set(key.wordIndex, [key]);
+    }
+
+    const keys: VisemeKey[] = [];
+
+    for (const [wordIndex, wordKeys] of [...byWord.entries()].sort((a, b) => a[0] - b[0])) {
+      const mark = marks[wordIndex];
+      if (!mark) {
+        keys.push(...wordKeys);
+        continue;
+      }
+
+      // Distribute this word's visemes across the mark proportionally to the
+      // durations the estimator assigned them, so stressed vowels stay long.
+      const total = wordKeys.reduce((sum, key) => sum + key.duration, 0) || 1;
+      let cursor = mark.timeMs;
+
+      for (const key of wordKeys) {
+        const share = (key.duration / total) * mark.durationMs;
+        keys.push({ ...key, time: Math.round(cursor), duration: Math.max(1, Math.round(share)) });
+        cursor += share;
+      }
+    }
+
+    keys.sort((a, b) => a.time - b.time);
+    const last = keys[keys.length - 1];
+
+    return {
+      keys,
+      duration: durationMs && durationMs > 0 ? durationMs : last ? last.time + last.duration : 0,
+      wordCount: timeline.wordCount,
+    };
+  }
+
+  if (durationMs && durationMs > 0 && timeline.duration > 0) {
+    const scale = durationMs / timeline.duration;
+    return {
+      keys: timeline.keys.map((key) => ({
+        ...key,
+        time: Math.round(key.time * scale),
+        duration: Math.max(1, Math.round(key.duration * scale)),
+      })),
+      duration: durationMs,
+      wordCount: timeline.wordCount,
+    };
+  }
+
+  return timeline;
+}

@@ -2,6 +2,8 @@
  * Core domain types for the MeshStage creation pipeline.
  */
 
+import type { VoiceProvider } from '../lib/tts';
+
 export type StageId = 'input' | 'processing' | 'voice' | 'export';
 
 export const STAGE_ORDER: StageId[] = ['input', 'processing', 'voice', 'export'];
@@ -83,11 +85,13 @@ export const MOTION_PRESETS: MotionPresetMeta[] = [
 ];
 
 export interface VoiceSettings {
-  /** SpeechSynthesisVoice.voiceURI, or '' while the catalogue is loading. */
+  /** SpeechSynthesisVoice.voiceURI, or the TTS service's voice id. */
   voiceURI: string;
   lang: string;
   rate: number;
   pitch: number;
+  /** Which engine renders this voice: the device, or the MeshStage service. */
+  provider: VoiceProvider;
 }
 
 export type ExportFormatId = 'glb' | 'fbx' | 'usdz' | 'video' | 'timeline';
