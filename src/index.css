@@ -1,0 +1,140 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------
+   MeshStage design tokens — "dark obsidian" studio surface.
+   ------------------------------------------------------------------ */
+@theme {
+  --color-obsidian-950: #0a0a0c;
+  --color-obsidian-900: #0e0e12;
+  --color-obsidian-850: #131319;
+  --color-obsidian-800: #1a1a22;
+  --color-obsidian-700: #24242f;
+  --color-obsidian-600: #32323f;
+
+  --color-ink-100: #f4f6fb;
+  --color-ink-300: #c3c7d4;
+  --color-ink-500: #8a8fa3;
+  --color-ink-600: #646a7d;
+
+  --color-beam-400: #38e0f5;
+  --color-beam-500: #22d3ee;
+  --color-beam-600: #0ea5c4;
+  --color-pulse-500: #3b82f6;
+  --color-pulse-600: #2563eb;
+
+  --color-danger-400: #f87171;
+  --color-danger-500: #ef4444;
+  --color-warn-400: #fbbf24;
+  --color-ok-400: #34d399;
+
+  /* 48px — the mobile thumb floor every interactive element honours. */
+  --spacing-touch: 3rem;
+
+  --radius-sheet: 1.75rem;
+
+  --font-sans: 'Inter Tight', 'SF Pro Display', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+
+  --animate-sweep: sweep 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  --animate-breathe: breathe 3.6s ease-in-out infinite;
+  --animate-rise: rise 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translate3d(0, 12px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@layer base {
+  html {
+    background-color: var(--color-obsidian-950);
+    -webkit-text-size-adjust: 100%;
+    /* Stop iOS from rubber-banding the whole studio shell. */
+    overscroll-behavior-y: none;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-obsidian-950);
+    color: var(--color-ink-100);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+    /* Only our own scroll containers pan; the shell itself never moves. */
+    touch-action: manipulation;
+  }
+
+  /* iOS zooms any input whose computed font-size is under 16px on focus. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  button,
+  [role='button'] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  canvas {
+    touch-action: none;
+    display: block;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-beam-500);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@utility app-height {
+  /* 100dvh with a static fallback for browsers that predate dynamic units. */
+  height: 100vh;
+  height: 100dvh;
+}
+
+@utility safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+@utility safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+@utility scroll-pane {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+@utility glass {
+  background-color: color-mix(in srgb, var(--color-obsidian-900) 78%, transparent);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
