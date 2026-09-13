@@ -49,7 +49,14 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
           className="min-h-0 flex-1"
           accent="#3b82f6"
           autoRotate
-          fit={{ focus: 0.64, padding: 1.3, azimuth: 0.42, dependency: character?.seed }}
+          fit={{
+            focus: state.body === 'head' ? 0.5 : 0.64,
+            padding: 1.3,
+            // A face wants to be seen face-on; only a full body reads better
+            // from three-quarters.
+            azimuth: state.body === 'head' ? 0 : 0.42,
+            dependency: `${character?.seed}:${state.body}`,
+          }}
           transparent={state.transparentBackground}
           overlay={
             <>
@@ -74,6 +81,7 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
               seed={character.seed}
               motion={state.motion}
               appearance={character.appearance}
+              body={state.body}
             />}
           {!state.transparentBackground && <StageFloor accent="#3b82f6" />}
         </Viewport>

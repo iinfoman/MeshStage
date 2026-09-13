@@ -203,8 +203,29 @@ drives the suit, trim and visor colours, and the artwork is carried onto the
 character as a chest and back panel.
 
 This is honest about its limits: it is **your colours and artwork on a
-procedural body, not a 3D reconstruction of your image**. The studio says so on
+procedural mesh, not a 3D reconstruction of your image**. The studio says so on
 stage 3 rather than implying otherwise.
+
+**Build presets.** Stage 3 offers `Full body`, `Bust` and `Head only`. The
+viseme rig lives entirely in the head, so a head build still talks and still
+exports rigged — which makes `Head only` the right choice for a mascot or
+emoji, where a generic torso only gets in the way.
+
+On a head or bust build the reference is mapped onto the **face** rather than
+worn as a chest panel: a sphere segment wrapping the front of the skull, with
+the procedural eyes, brow and visor suppressed so the artwork's own features
+are the only ones. `findMouthAnchor` locates the drawn mouth (darkest warm mass
+below the eye line) and the animated cavity is projected onto that point, fading
+in as it opens — so at rest the reference reads exactly as drawn, and it opens
+where a viewer expects.
+
+Two coordinate traps are worth knowing if you touch this. The sample canvas is
+a fixed square, so a non-square upload — a 1080x2340 phone screenshot, say — is
+stretched into it, squashing a circular mascot to roughly 2:1. Colour work is
+unaffected but every geometric measurement has to be converted back through the
+real aspect ratio. And the bone root is a *sibling* of the SkinnedMesh, not its
+child: parenting bones under the mesh means hiding the torso also hides the head
+hanging off those bones.
 
 **Service (real reconstruction, needs a key).** Set `VITE_MESHSTAGE_GEN_API` and
 configure a provider in `server/providers/reconstruct.mjs`:

@@ -56,7 +56,21 @@ export function FitCamera({
     // Skinned geometry reports its *bind pose* bounds, which is what we want:
     // framing shouldn't jitter as the idle animation moves the character.
     target.updateMatrixWorld(true);
-    box.setFromObject(target, true);
+
+    // Measure only what is drawn. `Box3.setFromObject` includes hidden meshes,
+    // so a head-only build would still be framed around the invisible body it
+    // was carved out of, putting the head off-screen.
+    const scratch = new THREE.Box3();
+    target.traverseVisible((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.geometry) return;
+      scratch.setFromBufferAttribute(
+        mesh.geometry.getAttribute('position') as THREE.BufferAttribute,
+      );
+      scratch.applyMatrix4(mesh.matrixWorld);
+      box.union(scratch);
+    });
+
     // The subject may not have mounted yet — stay armed and retry next frame.
     if (box.isEmpty()) return;
 

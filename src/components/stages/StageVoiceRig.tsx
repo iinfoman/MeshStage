@@ -9,9 +9,10 @@ import { PillGroup, Slider } from '../Controls';
 import { AudioUnlockOverlay } from '../AudioUnlockOverlay';
 import { ArrowRightIcon, BoneIcon, ChevronDownIcon, CubeIcon, PlayIcon, StopIcon, TrashIcon } from '../icons';
 import { useStudio } from '../../state/StudioContext';
+import type { BodyPreset } from '../../three/characterFactory';
 import { useVoiceCatalogue } from '../../hooks/useVoiceCatalogue';
 import { formatDuration } from '../../lib/utils';
-import { MOTION_PRESETS, type MotionPreset } from '../../types/studio';
+import { BODY_PRESETS, MOTION_PRESETS, type MotionPreset } from '../../types/studio';
 import type { ConfirmRequest } from '../ConfirmDialog';
 
 export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmRequest) => void }) {
@@ -57,7 +58,11 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
         <Viewport
           className="min-h-0 flex-1"
           accent="#22d3ee"
-          fit={{ focus: 0.66, padding: 1.22, dependency: character?.seed }}
+          fit={{
+            focus: state.body === 'head' ? 0.5 : 0.66,
+            padding: 1.22,
+            dependency: `${character?.seed}:${state.body}`,
+          }}
           overlay={
             <>
               <div
@@ -92,6 +97,7 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
               seed={character.seed}
               motion={state.motion}
               appearance={character.appearance}
+              body={state.body}
             />}
           <StageFloor accent="#22d3ee" />
         </Viewport>
@@ -220,6 +226,28 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
             )}
           </SheetSection>
 
+          <SheetSection
+            title="Build"
+            hint={state.body === 'head' ? 'Rig lives in the head' : 'Character extent'}
+          >
+            <PillGroup<BodyPreset>
+              ariaLabel="How much of the character to build"
+              value={state.body}
+              onChange={(body) => dispatch({ type: 'setBody', body })}
+              options={BODY_PRESETS.map((preset) => ({
+                value: preset.id,
+                label: preset.label,
+                hint: preset.hint,
+              }))}
+            />
+            {state.body !== 'full' && character?.source === 'image' && (
+              <p className="text-[11px] leading-relaxed text-ink-600">
+                Your reference is mapped onto the face. All 15 visemes live in the head, so it
+                still talks and still exports rigged.
+              </p>
+            )}
+          </SheetSection>
+
           <SheetSection title="Motion preset" hint="Idle loop">
             <PillGroup<MotionPreset>
               ariaLabel="Idle animation preset"
@@ -228,7 +256,7 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
               options={MOTION_PRESETS.map((preset) => ({
                 value: preset.id,
                 label: preset.label,
-                hint: preset.hint,
+                hint: state.body === 'head' ? 'Head motion' : preset.hint,
               }))}
             />
           </SheetSection>

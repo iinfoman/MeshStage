@@ -41,6 +41,7 @@ export function StageProcessing({ onConfirm }: { onConfirm: (request: ConfirmReq
             shade: analysis.shade,
             lightness: analysis.lightness,
             textureDataUrl: analysis.textureDataUrl,
+            mouthAnchor: analysis.mouthAnchor,
           },
         });
       })

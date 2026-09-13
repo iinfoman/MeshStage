@@ -3,7 +3,7 @@
  */
 
 import type { VoiceProvider } from '../lib/tts';
-import type { CharacterAppearance } from '../three/characterFactory';
+import type { BodyPreset, CharacterAppearance } from '../three/characterFactory';
 
 export type StageId = 'input' | 'processing' | 'voice' | 'export';
 
@@ -86,6 +86,18 @@ export interface MotionPresetMeta {
   label: string;
   hint: string;
 }
+
+export interface BodyPresetMeta {
+  id: BodyPreset;
+  label: string;
+  hint: string;
+}
+
+export const BODY_PRESETS: BodyPresetMeta[] = [
+  { id: 'full', label: 'Full body', hint: 'Torso, arms, legs' },
+  { id: 'bust', label: 'Bust', hint: 'Head & shoulders' },
+  { id: 'head', label: 'Head only', hint: 'Mascot / emoji' },
+];
 
 export const MOTION_PRESETS: MotionPresetMeta[] = [
   { id: 'standing', label: 'Standing', hint: 'Weight-shift idle' },
@@ -198,6 +210,7 @@ export interface StudioState {
   voice: VoiceSettings;
   script: string;
   motion: MotionPreset;
+  body: BodyPreset;
   selectedFormat: ExportFormatId;
   transparentBackground: boolean;
   tier: TierState;

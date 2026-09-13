@@ -27,14 +27,25 @@ export interface CharacterPalette {
  * seed-generated one, and `textureDataUrl` is carried onto the character as
  * artwork. Omit it and the rig falls back to a procedural look.
  */
+/**
+ * How much of the character to build.
+ *
+ * `head` is the right shape for a mascot or emoji: the viseme rig lives
+ * entirely in the head, so a head alone still talks, and it reads far better
+ * than the same artwork printed on a generic torso.
+ */
+export type BodyPreset = 'full' | 'bust' | 'head';
+
 export interface CharacterAppearance {
   suit: string;
   accent: string;
   shade: string;
   /** 0..1 — brightens the skin tone for light references. */
   lightness: number;
-  /** Square PNG data URL applied to the chest panel and back. */
+  /** Square PNG data URL: the face on a head build, a chest panel otherwise. */
   textureDataUrl?: string;
+  /** Where the reference's own mouth sits in that texture, normalised 0..1. */
+  mouthAnchor?: { u: number; v: number } | null;
 }
 
 export interface CharacterRig {
@@ -49,6 +60,8 @@ export interface CharacterRig {
   palette: CharacterPalette;
   /** Morph target index per viseme, for the animation loop. */
   visemeIndex: Record<Viseme, number>;
+  /** True when the face is the user's artwork rather than procedural features. */
+  hasFaceDecal: boolean;
   dispose: () => void;
 }
 
@@ -105,7 +118,11 @@ const VISEME_SHAPE: Record<Viseme, { w: number; h: number; z: number }> = {
   U: { w: 0.66, h: 1.05, z: 1.22 }, // pursed forward
 };
 
-export function createCharacterRig(seed: number, appearance?: CharacterAppearance): CharacterRig {
+export function createCharacterRig(
+  seed: number,
+  appearance?: CharacterAppearance,
+  body: BodyPreset = 'full',
+): CharacterRig {
   const random = makeRandom(seed);
   const palette = appearance ? paletteFromAppearance(appearance, random) : buildPalette(random);
 
@@ -124,6 +141,11 @@ export function createCharacterRig(seed: number, appearance?: CharacterAppearanc
   // each bone's translation and flings the mesh off-screen.
   bones.hips.updateMatrixWorld(true);
   const skeleton = new THREE.Skeleton(BONE_LAYOUT.map((entry) => bones[entry.name]));
+
+  // A face texture replaces the procedural features entirely: the artwork
+  // already has its own eyes and brows, and drawing ours on top of them is
+  // the uncanny result nobody wants.
+  const faceDecal = body === 'head' || body === 'bust' ? appearance?.textureDataUrl : undefined;
 
   const disposables: Array<{ dispose: () => void }> = [];
   const track = <T extends { dispose: () => void }>(value: T): T => {
@@ -166,10 +188,20 @@ export function createCharacterRig(seed: number, appearance?: CharacterAppearanc
   skinned.name = 'Body';
   skinned.castShadow = true;
   skinned.receiveShadow = true;
-  skinned.add(bones.hips);
+
+  // The bone root is a *sibling* of the skinned mesh, not its child. Parenting
+  // bones under the mesh (three's own minimal example does this) means hiding
+  // the torso also hides every limb and the head hanging off those bones —
+  // which is exactly what a head-only build needs to avoid. glTF uses the
+  // sibling arrangement for the same reason.
+  root.add(bones.hips);
+  root.add(skinned);
   skinned.bind(skeleton);
   skinned.frustumCulled = false;
-  root.add(skinned);
+
+  // The mesh still owns the skeleton binding, so a head build hides it rather
+  // than skipping it — dropping it would take the viseme rig with it.
+  skinned.visible = body === 'full';
 
   // ---- Head assembly, parented to the head bone ---------------------------
   const headPivot = new THREE.Group();
@@ -179,20 +211,63 @@ export function createCharacterRig(seed: number, appearance?: CharacterAppearanc
 
   const skullGeometry = track(new THREE.SphereGeometry(0.23, 32, 24));
   skullGeometry.scale(1, 1.12, 1.02);
-  const skull = new THREE.Mesh(skullGeometry, skinMaterial);
+  const skullMaterial = faceDecal
+    ? track(
+        new THREE.MeshStandardMaterial({
+          color: palette.suit,
+          roughness: 0.5,
+          metalness: 0.04,
+          name: 'MeshStage_HeadShell',
+        }),
+      )
+    : skinMaterial;
+  const skull = new THREE.Mesh(skullGeometry, skullMaterial);
   skull.name = 'Skull';
   skull.position.y = 0.2;
   skull.castShadow = true;
   headPivot.add(skull);
 
+  if (faceDecal) {
+    // A sphere segment a hair larger than the skull, centred on +Z, so the
+    // artwork wraps the front of the head instead of floating as a flat card.
+    const decalGeometry = track(
+      new THREE.SphereGeometry(0.238, 48, 32, Math.PI / 2 - 1.5, 3.0, 0.22, 2.2),
+    );
+    decalGeometry.scale(1, 1.12, 1.02);
+
+    const decalTexture = track(new THREE.TextureLoader().load(faceDecal));
+    decalTexture.colorSpace = THREE.SRGBColorSpace;
+    decalTexture.anisotropy = 4;
+
+    const decalMaterial = track(
+      new THREE.MeshStandardMaterial({
+        map: decalTexture,
+        transparent: true,
+        roughness: 0.55,
+        metalness: 0.02,
+        emissive: new THREE.Color('#ffffff'),
+        emissiveMap: decalTexture,
+        emissiveIntensity: 0.32,
+        name: 'MeshStage_Face',
+      }),
+    );
+
+    const decal = new THREE.Mesh(decalGeometry, decalMaterial);
+    decal.name = 'FaceDecal';
+    decal.position.y = 0.2;
+    headPivot.add(decal);
+  }
+
   // Helmet crown — a cap over the top of the skull, in suit colour.
   const crownGeometry = track(new THREE.SphereGeometry(0.238, 32, 20, 0, Math.PI * 2, 0, 1.05));
   crownGeometry.scale(1, 1.12, 1.02);
-  const crown = new THREE.Mesh(crownGeometry, suitMaterial);
-  crown.name = 'Helmet';
-  crown.position.y = 0.2;
-  crown.castShadow = true;
-  headPivot.add(crown);
+  if (!faceDecal) {
+    const crown = new THREE.Mesh(crownGeometry, suitMaterial);
+    crown.name = 'Helmet';
+    crown.position.y = 0.2;
+    crown.castShadow = true;
+    headPivot.add(crown);
+  }
 
   // Visor — the signature MeshStage silhouette cue. A front-facing shield, not
   // a full band: `phi` is centred on +Z so it wraps the face only, and `theta`
@@ -216,17 +291,21 @@ export function createCharacterRig(seed: number, appearance?: CharacterAppearanc
       name: 'MeshStage_Visor',
     }),
   );
-  const visor = new THREE.Mesh(visorGeometry, visorMaterial);
-  visor.name = 'Visor';
-  visor.position.y = 0.2;
-  headPivot.add(visor);
+  if (!faceDecal) {
+    const visor = new THREE.Mesh(visorGeometry, visorMaterial);
+    visor.name = 'Visor';
+    visor.position.y = 0.2;
+    headPivot.add(visor);
+  }
 
   // Neck — without it the head reads as balanced on the shoulders.
   const neckGeometry = track(new THREE.CylinderGeometry(0.072, 0.095, 0.1, 16));
-  const neck = new THREE.Mesh(neckGeometry, skinMaterial);
-  neck.name = 'Neck';
-  neck.position.y = 0.03;
-  headPivot.add(neck);
+  if (body !== 'head') {
+    const neck = new THREE.Mesh(neckGeometry, skinMaterial);
+    neck.name = 'Neck';
+    neck.position.y = 0.03;
+    headPivot.add(neck);
+  }
 
   // ---- Jaw + mouth with viseme blendshapes --------------------------------
   const jaw = new THREE.Group();
@@ -242,20 +321,47 @@ export function createCharacterRig(seed: number, appearance?: CharacterAppearanc
       roughness: 0.85,
       metalness: 0,
       name: 'MeshStage_MouthCavity',
+      // Over a face decal the artwork already draws a mouth, so the cavity
+      // fades in as it opens instead of sitting there as a dark blob.
+      transparent: true,
     }),
   );
   const mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
   mouth.name = 'Mouth_Visemes';
-  mouth.position.set(0, -0.01, 0.208);
   mouth.morphTargetInfluences = new Array(VISEMES.length).fill(0);
+
+  if (faceDecal) {
+    // Project the detected mouth position back onto the sphere the decal is
+    // mapped to, so the animated cavity sits exactly where the artwork's own
+    // mouth is drawn. Falls back to a typical face position when detection
+    // found nothing convincing.
+    const anchor = appearance?.mouthAnchor ?? { u: 0.5, v: 0.72 };
+    const phi = Math.PI / 2 - 1.5 + anchor.u * 3.0;
+    const theta = 0.22 + anchor.v * 2.2;
+    const radius = 0.226;
+
+    mouth.position.set(
+      -radius * Math.cos(phi) * Math.sin(theta),
+      // The decal sphere is scaled 1.12 vertically and sits at y = 0.2, and
+      // the jaw this hangs from is already at y = 0.135.
+      radius * 1.12 * Math.cos(theta) + 0.2 - 0.135,
+      radius * 1.02 * Math.sin(phi) * Math.sin(theta),
+    );
+    mouth.scale.setScalar(0.78);
+  } else {
+    mouth.position.set(0, -0.01, 0.208);
+  }
+
   jaw.add(mouth);
 
   const lipGeometry = track(new THREE.TorusGeometry(0.046, 0.012, 8, 20));
   lipGeometry.scale(1.15, 0.85, 1);
-  const lips = new THREE.Mesh(lipGeometry, skinMaterial);
-  lips.name = 'Lips';
-  lips.position.set(0, -0.01, 0.212);
-  jaw.add(lips);
+  if (!faceDecal) {
+    const lips = new THREE.Mesh(lipGeometry, skinMaterial);
+    lips.name = 'Lips';
+    lips.position.set(0, -0.01, 0.212);
+    jaw.add(lips);
+  }
 
   // ---- Eyes ----------------------------------------------------------------
   const eyeGeometry = track(new THREE.SphereGeometry(0.028, 16, 12));
@@ -269,61 +375,72 @@ export function createCharacterRig(seed: number, appearance?: CharacterAppearanc
       name: 'MeshStage_Optics',
     }),
   );
-  for (const side of [-1, 1]) {
-    const eye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-    eye.name = side < 0 ? 'Eye_R' : 'Eye_L';
-    // Sits proud of the 0.23 skull radius so it reads through the visor.
-    eye.position.set(side * 0.082, 0.222, 0.205);
-    eye.scale.set(1.7, 1.15, 0.9);
-    headPivot.add(eye);
+  if (!faceDecal) {
+    for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+      eye.name = side < 0 ? 'Eye_R' : 'Eye_L';
+      // Sits proud of the 0.23 skull radius so it reads through the visor.
+      eye.position.set(side * 0.082, 0.222, 0.205);
+      eye.scale.set(1.7, 1.15, 0.9);
+      headPivot.add(eye);
+    }
   }
 
   // ---- Limbs, parented to their bones -------------------------------------
   const limbGeometry = track(new THREE.CapsuleGeometry(0.062, 0.26, 6, 12));
   const legGeometry = track(new THREE.CapsuleGeometry(0.078, 0.38, 6, 12));
 
-  const arms = {
-    left: attachLimb(bones.shoulderL, bones.elbowL, limbGeometry, suitMaterial, accentMaterial, 1),
-    right: attachLimb(bones.shoulderR, bones.elbowR, limbGeometry, suitMaterial, accentMaterial, -1),
-  };
+  const arms =
+    body === 'full'
+      ? {
+          left: attachLimb(bones.shoulderL, bones.elbowL, limbGeometry, suitMaterial, accentMaterial, 1),
+          right: attachLimb(bones.shoulderR, bones.elbowR, limbGeometry, suitMaterial, accentMaterial, -1),
+        }
+      : { left: new THREE.Group(), right: new THREE.Group() };
 
-  for (const [thigh, knee] of [
-    [bones.thighL, bones.kneeL],
-    [bones.thighR, bones.kneeR],
-  ] as const) {
-    const upper = new THREE.Mesh(legGeometry, suitMaterial);
-    upper.name = `${thigh.name}_mesh`;
-    upper.position.y = -0.225;
-    upper.castShadow = true;
-    thigh.add(upper);
+  if (body === 'full') {
+    for (const [thigh, knee] of [
+      [bones.thighL, bones.kneeL],
+      [bones.thighR, bones.kneeR],
+    ] as const) {
+      const upper = new THREE.Mesh(legGeometry, suitMaterial);
+      upper.name = `${thigh.name}_mesh`;
+      upper.position.y = -0.225;
+      upper.castShadow = true;
+      thigh.add(upper);
 
-    const lower = new THREE.Mesh(legGeometry, suitMaterial);
-    lower.name = `${knee.name}_mesh`;
-    lower.position.y = -0.225;
-    lower.scale.setScalar(0.92);
-    lower.castShadow = true;
-    knee.add(lower);
+      const lower = new THREE.Mesh(legGeometry, suitMaterial);
+      lower.name = `${knee.name}_mesh`;
+      lower.position.y = -0.225;
+      lower.scale.setScalar(0.92);
+      lower.castShadow = true;
+      knee.add(lower);
+    }
   }
 
   const pelvisGeometry = track(new THREE.CapsuleGeometry(0.155, 0.08, 6, 16));
   pelvisGeometry.scale(1.05, 0.9, 0.8);
-  const pelvis = new THREE.Mesh(pelvisGeometry, suitMaterial);
-  pelvis.name = 'Pelvis';
-  pelvis.position.y = -0.03;
-  pelvis.castShadow = true;
-  bones.hips.add(pelvis);
+  if (body === 'full') {
+    const pelvis = new THREE.Mesh(pelvisGeometry, suitMaterial);
+    pelvis.name = 'Pelvis';
+    pelvis.position.y = -0.03;
+    pelvis.castShadow = true;
+    bones.hips.add(pelvis);
+  }
 
   const yokeGeometry = track(new THREE.CapsuleGeometry(0.095, 0.6, 6, 16));
   yokeGeometry.rotateZ(Math.PI / 2);
   yokeGeometry.scale(1, 1, 0.72);
-  const yoke = new THREE.Mesh(yokeGeometry, suitMaterial);
-  yoke.name = 'ShoulderYoke';
-  yoke.position.set(0, 0.12, 0);
-  yoke.castShadow = true;
-  bones.chest.add(yoke);
+  if (body !== 'head') {
+    const yoke = new THREE.Mesh(yokeGeometry, suitMaterial);
+    yoke.name = 'ShoulderYoke';
+    yoke.position.set(0, 0.12, 0);
+    yoke.castShadow = true;
+    bones.chest.add(yoke);
+  }
 
   // Chest emblem — reads as a rig landmark in the wireframe preview too.
-  if (appearance?.textureDataUrl) {
+  if (appearance?.textureDataUrl && body === 'full') {
     // The upload, worn. A rounded panel on the chest and a smaller one between
     // the shoulders, so the reference is visible from either side.
     const texture = track(new THREE.TextureLoader().load(appearance.textureDataUrl));
@@ -367,7 +484,7 @@ export function createCharacterRig(seed: number, appearance?: CharacterAppearanc
     frame.name = 'ReferenceFrame';
     frame.position.set(0, 0.06, 0.216);
     bones.chest.add(frame);
-  } else {
+  } else if (body === 'full') {
     const emblemGeometry = track(new THREE.TorusGeometry(0.06, 0.014, 8, 24));
     const emblem = new THREE.Mesh(emblemGeometry, accentMaterial);
     emblem.name = 'ChestEmblem';
@@ -396,6 +513,7 @@ export function createCharacterRig(seed: number, appearance?: CharacterAppearanc
     arms,
     palette,
     visemeIndex,
+    hasFaceDecal: Boolean(faceDecal),
     dispose: () => {
       for (const item of disposables) item.dispose();
       skeleton.dispose();

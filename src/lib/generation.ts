@@ -97,6 +97,7 @@ async function generateLocally(
         shade: analysis.shade,
         lightness: analysis.lightness,
         textureDataUrl: analysis.textureDataUrl,
+        mouthAnchor: analysis.mouthAnchor,
       },
     };
   }
@@ -181,6 +182,7 @@ async function generateViaService(
           shade: analysis.shade,
           lightness: analysis.lightness,
           textureDataUrl: analysis.textureDataUrl,
+          mouthAnchor: analysis.mouthAnchor,
         }
       : undefined,
   };

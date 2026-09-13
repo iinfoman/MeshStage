@@ -1,3 +1,4 @@
+import type { BodyPreset } from '../three/characterFactory';
 import {
   type CharacterAsset,
   type ExportFormatId,
@@ -24,6 +25,7 @@ export const initialState: StudioState = {
   voice: { voiceURI: '', lang: 'en-US', rate: 1, pitch: 1, provider: 'system' },
   script: DEFAULT_SCRIPT,
   motion: 'talking',
+  body: 'full',
   selectedFormat: 'glb',
   transparentBackground: false,
   tier: { plan: 'free', rendersLeft: 3, rendersTotal: 10 },
@@ -46,6 +48,7 @@ export type StudioAction =
   | { type: 'setVoice'; patch: Partial<VoiceSettings> }
   | { type: 'setScript'; script: string }
   | { type: 'setMotion'; motion: MotionPreset }
+  | { type: 'setBody'; body: BodyPreset }
   | { type: 'goToStage'; stage: StageId }
   | { type: 'selectFormat'; formatId: ExportFormatId }
   | { type: 'setTransparentBackground'; value: boolean }
@@ -168,6 +171,9 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
 
     case 'setMotion':
       return { ...state, motion: action.motion };
+
+    case 'setBody':
+      return { ...state, body: action.body };
 
     case 'goToStage':
       return { ...state, stage: action.stage };

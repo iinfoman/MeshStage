@@ -5,7 +5,7 @@ import { createCharacterRig } from './characterFactory';
 import { useStudio } from '../state/StudioContext';
 import { VISEMES } from '../lib/visemes';
 import type { MotionPreset } from '../types/studio';
-import type { CharacterAppearance } from './characterFactory';
+import type { BodyPreset, CharacterAppearance } from './characterFactory';
 
 /** How quickly morph influences chase their target (per second). */
 const VISEME_ATTACK = 22;
@@ -16,14 +16,18 @@ interface CharacterProps {
   motion: MotionPreset;
   /** Look derived from the user's upload, when there was one. */
   appearance?: CharacterAppearance;
+  body?: BodyPreset;
 }
 
-export function Character({ seed, motion, appearance }: CharacterProps) {
+export function Character({ seed, motion, appearance, body = 'full' }: CharacterProps) {
   const { lipSync, scene } = useStudio();
 
   // Rebuilt only when the seed changes, i.e. when a genuinely new character
   // is generated — motion preset changes never touch geometry.
-  const rig = useMemo(() => createCharacterRig(seed, appearance), [seed, appearance]);
+  const rig = useMemo(
+    () => createCharacterRig(seed, appearance, body),
+    [seed, appearance, body],
+  );
 
   const influences = useRef<Float32Array>(new Float32Array(VISEMES.length));
   const blinkRef = useRef({ next: 2, closing: 0 });
@@ -57,6 +61,11 @@ export function Character({ seed, motion, appearance }: CharacterProps) {
     if (morphs) {
       for (let i = 0; i < morphs.length; i += 1) morphs[i] = target[i];
     }
+
+    // On an artwork face the drawn mouth is the resting state; the cavity only
+    // shows while speaking, so the reference reads correctly when idle.
+    const mouthMaterial = rig.mouth.material as THREE.MeshStandardMaterial;
+    mouthMaterial.opacity = rig.hasFaceDecal ? Math.min(1, weight * 2.4) : 1;
 
     // The jaw bone follows the open vowels; the mouth cavity scales with it so
     // the cavity never clips through the chin.
