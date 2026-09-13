@@ -73,6 +73,30 @@ That difference is visible in the output. Same scene, same script:
 
 The UI says which you are getting *before* you spend a render credit.
 
+## Deploying it somewhere testable
+
+The repo carries a `netlify.toml` and one serverless function, so a Netlify
+site needs no further setup:
+
+1. In Netlify, **Add new site → Import an existing project → GitHub**, pick
+   this repo, and choose the branch.
+2. Leave the build settings alone — `netlify.toml` already sets the build
+   command (`npm run build:deploy`), the publish directory (`dist`) and the
+   functions directory.
+3. Deploy.
+
+`netlify/functions/api.mts` serves the TTS service at `/api/*`, sharing
+`server/providers/edge.mjs` with the standalone Node server so there is one
+implementation of the Edge protocol. The deployed build points the studio at
+its own `/api`, so neural voices work with no configuration.
+
+A deployed site is **Edge-only**: there is no `espeak-ng` binary in the Lambda
+image. If Edge is unreachable the voice catalogue returns empty with a readable
+error rather than failing, and the studio falls back to the device's own voices.
+
+FBX conversion returns 501 there — the Autodesk FBX SDK cannot run in a
+serverless function.
+
 ## Architecture
 
 ```

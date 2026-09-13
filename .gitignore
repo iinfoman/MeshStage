@@ -7,3 +7,6 @@ dist-ssr
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Netlify
+.netlify

@@ -1,0 +1,27 @@
+# MeshStage Studio — static SPA plus the TTS service as one function.
+
+[build]
+  command = "npm run build:deploy"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# The studio is a single-page app: every non-API, non-asset path serves the
+# shell so a deep link or a refresh mid-pipeline doesn't 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    # Vite fingerprints asset filenames, so they are safe to cache forever.
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

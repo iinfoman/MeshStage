@@ -3,13 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "MeshStage — mobile-first 3D character animation & real-time lip-sync creation studio.",
+  "description": "MeshStage \u2014 mobile-first 3D character animation & real-time lip-sync creation studio.",
   "scripts": {
     "dev": "vite --host",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host",
     "typecheck": "tsc -b --noEmit",
-    "server": "node server/index.mjs"
+    "server": "node server/index.mjs",
+    "build:deploy": "VITE_MESHSTAGE_API=/api npm run build"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
@@ -26,6 +27,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.6.3",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "@netlify/functions": "^2.8.2"
   }
 }
