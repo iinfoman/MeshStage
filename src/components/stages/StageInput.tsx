@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Button } from '../Button';
 import { ActionBar } from '../ActionBar';
 import { SegmentedTabs } from '../Controls';
@@ -9,7 +9,61 @@ import { cn, formatBytes } from '../../lib/utils';
 import type { ConfirmRequest } from '../ConfirmDialog';
 import type { InputMode } from '../../types/studio';
 
-const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
+/**
+ * Hard ceiling before we even try to decode. Modern phone photos land well
+ * under this once downscaled; the check exists to stop a video or a RAW file
+ * from locking the tab up.
+ */
+const MAX_UPLOAD_BYTES = 40 * 1024 * 1024;
+
+/** Longest edge we keep. The analyser samples at 64px and the texture at 256. */
+const MAX_EDGE = 1600;
+
+/**
+ * Reads a picked file into a data URL, downscaling when it is large.
+ *
+ * A 12MP phone photo is ~24MB as a data URL, which is slow to hold in state
+ * and pointless at the resolution anything downstream actually uses. Rejecting
+ * those outright — which this used to do — meant a normal camera-roll photo
+ * simply failed.
+ */
+async function readAsDataUrl(file: File): Promise<string> {
+  const raw = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('That file could not be read.'));
+    reader.readAsDataURL(file);
+  });
+
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new Image();
+    element.onload = () => resolve(element);
+    // Safari decodes HEIC; Chrome does not, and this is where that surfaces.
+    element.onerror = () =>
+      reject(
+        new Error(
+          "This browser can't open that image format. Try a JPG or PNG — iPhone HEIC photos often need converting.",
+        ),
+      );
+    element.src = raw;
+  });
+
+  const longest = Math.max(image.naturalWidth, image.naturalHeight);
+  if (longest <= MAX_EDGE) return raw;
+
+  const scale = MAX_EDGE / longest;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(image.naturalWidth * scale);
+  canvas.height = Math.round(image.naturalHeight * scale);
+
+  const context = canvas.getContext('2d');
+  if (!context) return raw;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  // PNG keeps the transparency a mascot or sticker depends on.
+  return canvas.toDataURL('image/png');
+}
 
 const PROMPT_IDEAS = [
   'Cyberpunk astronaut with a neon visor',
@@ -20,10 +74,9 @@ const PROMPT_IDEAS = [
 
 export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest) => void }) {
   const { state, dispatch } = useStudio();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   // A failed generation lands back here; show why before the local error.
   const message = error ?? state.generationError;
 
@@ -31,25 +84,33 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
   const dirty = Boolean(state.imageDataUrl) || state.prompt.trim().length > 0;
 
   const ingestFile = useCallback(
-    (file: File | undefined) => {
+    async (file: File | undefined) => {
       setError(null);
       if (!file) return;
 
-      if (!file.type.startsWith('image/')) {
-        setError('That file is not an image. Upload a JPG, PNG, HEIC or WebP.');
+      // Some Android pickers hand back an empty MIME type, so trust the
+      // extension too rather than rejecting a perfectly good photo.
+      const looksLikeImage =
+        file.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp)$/i.test(file.name);
+
+      if (!looksLikeImage) {
+        setError(`"${file.name}" is not an image. Upload a JPG, PNG, HEIC or WebP.`);
         return;
       }
       if (file.size > MAX_UPLOAD_BYTES) {
-        setError(`Reference is ${formatBytes(file.size)}. The limit is 12 MB.`);
+        setError(`That file is ${formatBytes(file.size)} — too large to open. Try a photo instead.`);
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        dispatch({ type: 'setImage', dataUrl: String(reader.result), name: file.name });
-      };
-      reader.onerror = () => setError('Could not read that file. Try another image.');
-      reader.readAsDataURL(file);
+      setBusy(true);
+      try {
+        const dataUrl = await readAsDataUrl(file);
+        dispatch({ type: 'setImage', dataUrl, name: file.name });
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Could not read that image.');
+      } finally {
+        setBusy(false);
+      }
     },
     [dispatch],
   );
@@ -98,8 +159,7 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
               dragging={dragging}
               setDragging={setDragging}
               onFile={ingestFile}
-              onPick={() => fileInputRef.current?.click()}
-              onCapture={() => cameraInputRef.current?.click()}
+              busy={busy}
               imageDataUrl={state.imageDataUrl}
               imageName={state.imageName}
               onClear={() => dispatch({ type: 'clearImage' })}
@@ -118,23 +178,6 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
           </p>
         )}
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="sr-only"
-          onChange={(event) => ingestFile(event.target.files?.[0])}
-        />
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          // `capture` opens the rear camera directly on Android and offers the
-          // camera first in the iOS sheet.
-          capture="user"
-          className="sr-only"
-          onChange={(event) => ingestFile(event.target.files?.[0])}
-        />
       </div>
 
       <ActionBar>
@@ -162,12 +205,20 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
   );
 }
 
+/**
+ * The picker is opened by a real `<label for>`, not by calling `.click()` on a
+ * hidden input from JavaScript.
+ *
+ * That matters: a scripted click on a visually-hidden input is a well-known
+ * failure mode — iOS Safari drops it when it is not inside the user gesture,
+ * and embedded/sandboxed frames can swallow it. A label needs no script at
+ * all, so there is nothing left to fail.
+ */
 function UploadPane({
   dragging,
   setDragging,
   onFile,
-  onPick,
-  onCapture,
+  busy,
   imageDataUrl,
   imageName,
   onClear,
@@ -175,12 +226,28 @@ function UploadPane({
   dragging: boolean;
   setDragging: (value: boolean) => void;
   onFile: (file: File | undefined) => void;
-  onPick: () => void;
-  onCapture: () => void;
+  busy: boolean;
   imageDataUrl: string | null;
   imageName: string | null;
   onClear: () => void;
 }) {
+  const accept = 'image/*,.heic,.heif';
+
+  const hiddenInput = (id: string, capture?: 'user' | 'environment') => (
+    <input
+      id={id}
+      type="file"
+      accept={accept}
+      {...(capture ? { capture } : {})}
+      className="sr-only"
+      onChange={(event) => {
+        onFile(event.target.files?.[0]);
+        // Reset so picking the same file twice still fires a change event.
+        event.target.value = '';
+      }}
+    />
+  );
+
   if (imageDataUrl) {
     return (
       <div className="space-y-3">
@@ -188,7 +255,7 @@ function UploadPane({
           <img
             src={imageDataUrl}
             alt={imageName ?? 'Uploaded reference'}
-            className="aspect-[4/5] w-full object-cover"
+            className="aspect-[4/5] w-full object-contain"
           />
           <figcaption className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-gradient-to-t from-obsidian-950 to-transparent px-4 pt-10 pb-3">
             <span className="min-w-0 truncate text-[12.5px] text-ink-300">{imageName}</span>
@@ -199,9 +266,15 @@ function UploadPane({
         </figure>
 
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="secondary" onClick={onPick} icon={<UploadIcon className="size-4" />}>
+          <label
+            htmlFor="meshstage-replace"
+            className="flex min-h-touch cursor-pointer items-center justify-center gap-2 rounded-2xl border border-obsidian-700 bg-obsidian-800 px-5 text-[15px] text-ink-100 active:bg-obsidian-700"
+          >
+            <UploadIcon className="size-4" />
             Replace
-          </Button>
+            {hiddenInput('meshstage-replace')}
+          </label>
+
           <Button variant="ghost" onClick={onClear} icon={<TrashIcon className="size-4" />}>
             Remove
           </Button>
@@ -228,34 +301,47 @@ function UploadPane({
           dragging ? 'border-beam-500 bg-beam-500/8' : 'border-obsidian-700 bg-obsidian-900/50',
         )}
       >
-        <button
-          type="button"
-          onClick={onPick}
-          className="flex w-full flex-col items-center gap-3 px-6 py-10 text-center"
+        <label
+          htmlFor="meshstage-upload"
+          className="flex w-full cursor-pointer flex-col items-center gap-3 px-6 py-10 text-center"
         >
           <span className="grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-beam-500/18 to-pulse-500/12 text-beam-400 ring-1 ring-beam-500/25">
-            <UploadIcon className="size-6" />
+            {busy ? (
+              <span
+                aria-hidden
+                className="size-6 animate-spin rounded-full border-2 border-current border-t-transparent"
+              />
+            ) : (
+              <UploadIcon className="size-6" />
+            )}
           </span>
 
           <span>
             <span className="block text-[15px] font-medium text-ink-100">
-              Upload 2D Reference / Selfie to 3D
+              {busy ? 'Reading your image…' : 'Upload 2D Reference / Selfie to 3D'}
             </span>
             <span className="mt-1 block text-[12.5px] leading-relaxed text-ink-500">
               Tap to browse your camera roll, or drop an image here.
               <br />
-              JPG · PNG · HEIC · WebP — up to 12 MB.
+              JPG · PNG · HEIC · WebP
             </span>
           </span>
-        </button>
+
+          {hiddenInput('meshstage-upload')}
+        </label>
       </div>
 
-      <Button variant="outline" block onClick={onCapture} icon={<CameraIcon className="size-[18px]" />}>
+      <label
+        htmlFor="meshstage-camera"
+        className="flex min-h-touch cursor-pointer items-center justify-center gap-2 rounded-2xl border border-beam-500/40 bg-beam-500/5 px-5 text-[15px] text-beam-400 active:bg-beam-500/12"
+      >
+        <CameraIcon className="size-[18px]" />
         Take a photo now
-      </Button>
+        {hiddenInput('meshstage-camera', 'user')}
+      </label>
 
       <p className="px-1 text-[11.5px] leading-relaxed text-ink-600">
-        Best results: a front-facing photo, even lighting, shoulders in frame.
+        A face or mascot comes back as a head. A full figure comes back as a full body.
       </p>
     </div>
   );
