@@ -11,7 +11,7 @@ import * as THREE from 'three';
  * framing holds across phone aspect ratios from 9:20 to 3:4.
  */
 export function FitCamera({
-  /** Object name to measure; falls back to the whole scene. */
+  /** Object name to measure. The fit waits until an object by this name exists. */
   objectName = 'MeshStage_Character',
   /** >1 leaves headroom around the subject. */
   padding = 1.18,
@@ -50,7 +50,14 @@ export function FitCamera({
   useFrame(() => {
     if (!pending.current) return;
 
-    const target = scene.getObjectByName(objectName) ?? scene;
+    // Wait for the subject itself. Falling back to the whole scene looks
+    // harmless but is not: the stage floor is a mesh, so the box would never
+    // be empty, the fit would frame the floor and then disarm. A provider mesh
+    // downloads after mount, so that is exactly the window it lands in — and
+    // it arrived framed off the top of the screen.
+    const target = scene.getObjectByName(objectName);
+    if (!target) return;
+
     const box = new THREE.Box3();
 
     // Skinned geometry reports its *bind pose* bounds, which is what we want:
@@ -91,7 +98,16 @@ export function FitCamera({
 
     const distanceForHeight = dimensions.y / 2 / Math.tan(vFov / 2);
     const distanceForWidth = Math.max(dimensions.x, dimensions.z) / 2 / Math.tan(hFov / 2);
-    const distance = Math.max(distanceForHeight, distanceForWidth) * padding;
+
+    // Those distances frame the subject's *centre* plane, but the surface
+    // facing the camera is half a depth nearer — and under perspective, nearer
+    // means bigger. A humanoid is thin enough front-to-back that the error
+    // hides; a chunky reconstructed mesh is as deep as it is tall, and its
+    // front face overflowed the viewport entirely. Stand off by the widest
+    // horizontal half-extent, which is also the most that can swing toward the
+    // camera as the stage orbits.
+    const halfDepth = Math.max(dimensions.x, dimensions.z) / 2;
+    const distance = Math.max(distanceForHeight, distanceForWidth) * padding + halfDepth;
 
     perspective.position.set(
       lookAt.x + Math.sin(azimuth) * distance,

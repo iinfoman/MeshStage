@@ -253,10 +253,29 @@ configure a provider in `server/providers/reconstruct.mjs`:
 These bill per generation. The client submits, polls, and falls back to the
 local path if the provider is unreachable — with a notice, never silently.
 
+The returned GLB is what the studio renders and exports: `ReconstructedCharacter`
+loads it (Draco included), normalises its scale — providers return wildly
+different units — stands it on the stage floor, and drives any morph targets
+named `viseme_*` off the same lip-sync clock as the procedural rig.
+
 **One caveat worth knowing before you pay for it:** image-to-3D returns
 *geometry*, not a rig. Unless the provider also runs a rigging pass, the mesh
 arrives with no skeleton and no viseme blendshapes, which is what lip-sync
-depends on. The job reports `rigged` so the studio can tell you.
+depends on. The job reports `rigged`, the studio re-checks by looking for the
+morph targets itself, and stage 3 says *"geometry only — lip-sync will not move
+this mesh"* rather than showing a mouth that never opens.
+
+This path was, for one release, wired at both ends and connected in the middle
+by nothing: `meshUrl` came back and was never loaded, so a correctly configured
+deployment would have shown an empty stage. Nothing caught it because without a
+key the branch was never taken. `tests/reconstruction.spec.ts` now stubs a
+provider — GLB built at test time by `buildGlbWithVisemes` — so the path is
+exercised on every run with no key and no spend.
+
+Point a build at a provider without rebuilding by setting
+`localStorage['meshstage:gen-endpoint']`. Deliberately not a query parameter: a
+URL-borne override would let any link redirect someone's uploaded photo to an
+endpoint of the sender's choosing.
 
 Guaranteed by tests: two different images produce different characters, the
 same image under a different name produces the *same* character, and the
@@ -266,9 +285,10 @@ rendered frame carries the reference's palette.
 
 The pipeline, rig, lip-sync, exports and now metering are real. What remains:
 
-- **Uploads style the character; they are not reconstructed into geometry.**
-  See below — the local path is real but it is not image-to-3D, and the
-  provider path needs a key.
+- **The default path styles the character; it does not reconstruct geometry.**
+  See below. Real image-to-3D works end to end — render, lip-sync where the
+  mesh supports it, and export — but it needs a provider key and bills per
+  generation. With no key the studio stays on the local procedural path.
 - **No payments.** `apply_plan_change()` is the seam a webhook would call; the
   "Upgrade" button does not yet reach it.
 - **Credits never refill.** `period_started_at` exists for a monthly reset job
@@ -467,6 +487,10 @@ Checked in a headless Chromium at iPhone viewport, against the live service:
 - Voice catalogue capping verified against a pathological host: a box with
   `espeak-ng` installed reports 13,363 voices to Chromium, which the
   dedupe/cap reduces to 131.
+- Image-to-3D checked end to end against a stub provider serving a real GLB:
+  the provider mesh renders, frames correctly, drives its own visemes, and
+  exports as a 43-node / 13-joint rigged GLB — verified by parsing the bytes
+  that came back out, not by trusting the UI.
 
 **Edge-TTS is verified in CI**, not in the sandbox this was built in: that
 environment's egress proxy blocks `speech.platform.bing.com`. The GitHub runner

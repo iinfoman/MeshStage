@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, type ReactNode } from 'react';
+import { Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -89,6 +89,26 @@ export function Viewport({
 }: ViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * The orbit target has to be a stable value, and it has to yield to the fit.
+   *
+   * `target` arrives as an array literal, so it is a *new* array on every
+   * render. R3F diffs props by identity, sees a change, and re-applies it to
+   * the controls — silently undoing the aim `FitCamera` computed. The subject
+   * then sits wherever the fixed target happens to put it, which on a provider
+   * mesh meant framed off the bottom of the screen. Dropping the prop when a
+   * fit is active leaves the controls' own target alone, and memoising the
+   * fallback stops the reset loop when there is no fit.
+   */
+  const orbitTarget = useMemo(
+    // Omitted entirely rather than passed as undefined: R3F would try to apply
+    // the undefined onto the controls' Vector3.
+    () => (fit ? {} : { target: new THREE.Vector3(...target) }),
+    // Keyed on the target's *values*. Depending on the array itself would
+    // recompute every render and reinstate exactly the churn this avoids.
+    [Boolean(fit), target[0], target[1], target[2]],
+  );
+
   return (
     // `relative` is load-bearing — the overlay layer positions against it, and
     // R3F sizes the canvas from it — so it is applied last and callers should
@@ -130,7 +150,7 @@ export function Viewport({
           maxDistance={5.5}
           minPolarAngle={Math.PI * 0.12}
           maxPolarAngle={Math.PI * 0.56}
-          target={target}
+          {...orbitTarget}
           // One-finger orbit, two-finger dolly — no drag-to-pan, which on a
           // phone is almost always an accidental scroll.
           touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE }}

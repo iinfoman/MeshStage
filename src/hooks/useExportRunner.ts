@@ -79,6 +79,7 @@ export function useExportRunner(): ExportRunnerApi {
 
         const result = await runExport(formatId, {
           rig: scene.current.rig,
+          exportRoot: scene.current.exportRoot,
           canvas: scene.current.canvas,
           characterId: state.character.id,
           characterName: state.character.name,

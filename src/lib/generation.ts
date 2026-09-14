@@ -54,8 +54,23 @@ function buildFor(subject: 'face' | 'figure' | 'artwork'): BodyPreset {
   return 'full';
 }
 
+/** localStorage key that points generation at a different provider. */
+const ENDPOINT_OVERRIDE_KEY = 'meshstage:gen-endpoint';
+
 export function generationEndpoint(): string | null {
-  const base = import.meta.env.VITE_MESHSTAGE_GEN_API;
+  // The override is read from localStorage, deliberately and not from the URL.
+  // A query parameter would let any link redirect a user's uploaded photo to
+  // an endpoint of the sender's choosing; localStorage can only be set by
+  // someone already at the keyboard, which is who this is for — an operator
+  // pointing a build at a staging provider, and the end-to-end test.
+  let override: string | null = null;
+  try {
+    override = window.localStorage.getItem(ENDPOINT_OVERRIDE_KEY);
+  } catch {
+    // Private mode or blocked storage: fall through to the build-time value.
+  }
+
+  const base = override || import.meta.env.VITE_MESHSTAGE_GEN_API;
   return base ? base.replace(/\/$/, '') : null;
 }
 

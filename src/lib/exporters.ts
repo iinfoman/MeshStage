@@ -16,6 +16,8 @@ import type { ExportFormatId } from '../types/studio';
 
 export interface ExportContext {
   rig: CharacterRig | null;
+  /** Whatever is on screen — procedural rig root, or a reconstructed mesh. */
+  exportRoot: THREE.Object3D | null;
   canvas: HTMLCanvasElement | null;
   characterId: string;
   characterName: string;
@@ -83,11 +85,12 @@ export async function runExport(
   }
 }
 
-function requireRig(context: ExportContext): CharacterRig {
-  if (!context.rig) {
+function requireSubject(context: ExportContext): THREE.Object3D {
+  const subject = context.exportRoot ?? context.rig?.root ?? null;
+  if (!subject) {
     throw new ExportError('The 3D viewport is still initialising. Try again in a moment.');
   }
-  return context.rig;
+  return subject;
 }
 
 /**
@@ -97,12 +100,12 @@ function requireRig(context: ExportContext): CharacterRig {
  * part-way through a blend; exporting it directly would bake that frame in. We
  * clone, reset the pose to bind, and zero every influence first.
  */
-function prepareExportScene(rig: CharacterRig): { scene: THREE.Scene; dispose: () => void } {
+function prepareExportScene(subject: THREE.Object3D): { scene: THREE.Scene; dispose: () => void } {
   // `Object3D.clone()` deep-copies the nodes but leaves the SkinnedMesh bound
   // to the ORIGINAL skeleton, so the exporter writes joint indices pointing at
   // bones that are not in the exported scene — a GLB that loads with no skin.
   // SkeletonUtils.clone() rebuilds the skeleton against the cloned bones.
-  const clone = cloneSkeleton(rig.root) as THREE.Group;
+  const clone = cloneSkeleton(subject) as THREE.Object3D;
   clone.position.set(0, 0, 0);
   clone.rotation.set(0, 0, 0);
 
@@ -126,8 +129,8 @@ function prepareExportScene(rig: CharacterRig): { scene: THREE.Scene; dispose: (
 }
 
 async function exportGLB(context: ExportContext): Promise<ExportResult> {
-  const rig = requireRig(context);
-  const { scene, dispose } = prepareExportScene(rig);
+  const subject = requireSubject(context);
+  const { scene, dispose } = prepareExportScene(subject);
   context.onProgress?.(0.25);
 
   try {
@@ -167,8 +170,8 @@ async function exportGLB(context: ExportContext): Promise<ExportResult> {
 }
 
 async function exportUSDZ(context: ExportContext): Promise<ExportResult> {
-  const rig = requireRig(context);
-  const { scene, dispose } = prepareExportScene(rig);
+  const subject = requireSubject(context);
+  const { scene, dispose } = prepareExportScene(subject);
   context.onProgress?.(0.3);
 
   try {
@@ -352,7 +355,7 @@ async function exportVideo(context: ExportContext): Promise<ExportResult> {
  * configured the call reports honestly rather than pretending to download.
  */
 async function exportFBX(context: ExportContext): Promise<ExportResult> {
-  const rig = requireRig(context);
+  const subject = requireSubject(context);
   const endpoint = import.meta.env.VITE_MESHSTAGE_API as string | undefined;
 
   if (!endpoint) {
@@ -361,7 +364,7 @@ async function exportFBX(context: ExportContext): Promise<ExportResult> {
     );
   }
 
-  const { scene, dispose } = prepareExportScene(rig);
+  const { scene, dispose } = prepareExportScene(subject);
   context.onProgress?.(0.2);
 
   try {

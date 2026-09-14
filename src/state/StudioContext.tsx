@@ -12,6 +12,7 @@ import { useAudioUnlock, type AudioUnlockApi } from '../hooks/useAudioUnlock';
 import { useGenerationPipeline } from '../hooks/useGenerationPipeline';
 import { useLipSync, type LipSyncApi } from '../hooks/useLipSync';
 import { useAccount, type AccountApi } from '../hooks/useAccount';
+import type * as THREE from 'three';
 import type { CharacterRig } from '../three/characterFactory';
 import type { StudioState } from '../types/studio';
 
@@ -25,6 +26,14 @@ import type { StudioState } from '../types/studio';
 export interface SceneHandles {
   rig: CharacterRig | null;
   canvas: HTMLCanvasElement | null;
+  /**
+   * What the exporters should write out.
+   *
+   * Set by whichever character is on screen — the procedural rig or a mesh
+   * reconstructed by a provider — so exporting does not need to know which
+   * path produced it.
+   */
+  exportRoot: THREE.Object3D | null;
 }
 
 interface StudioContextValue {
@@ -43,7 +52,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
   const audio = useAudioUnlock();
   const lipSync = useLipSync(state.script, state.voice, audio);
   const account = useAccount();
-  const scene = useRef<SceneHandles>({ rig: null, canvas: null });
+  const scene = useRef<SceneHandles>({ rig: null, canvas: null, exportRoot: null });
 
   useGenerationPipeline(state, dispatch);
 

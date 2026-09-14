@@ -1,5 +1,7 @@
 import { Viewport } from '../../three/Viewport';
 import { Character } from '../../three/Character';
+import { ReconstructedCharacter } from '../../three/ReconstructedCharacter';
+import { MeshStatusOverlay } from '../MeshStatusOverlay';
 import { StageFloor } from '../../three/StageFloor';
 import { ActionBar } from '../ActionBar';
 import { Button } from '../Button';
@@ -19,6 +21,15 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
   const [accountOpen, setAccountOpen] = useState(false);
   const { run, saveToLibrary, lastResult, saveLastResult } = useExportRunner();
   const character = state.character;
+  /**
+   * A provider mesh downloads after the viewport mounts, so the camera fit has
+   * nothing to measure on the first frame. Re-fit once it lands.
+   */
+  const [meshStatus, setMeshStatus] = useState<{
+    loading: boolean;
+    error: string | null;
+    rigged: boolean;
+  }>({ loading: false, error: null, rigged: false });
 
   const selected = EXPORT_FORMATS.find((format) => format.id === state.selectedFormat)!;
   const exporting = state.exportJob.status === 'running';
@@ -55,7 +66,7 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
             // A face wants to be seen face-on; only a full body reads better
             // from three-quarters.
             azimuth: state.body === 'head' ? 0 : 0.42,
-            dependency: `${character?.seed}:${state.body}`,
+            dependency: `${character?.seed}:${state.body}:${meshStatus.loading}`,
           }}
           transparent={state.transparentBackground}
           overlay={
@@ -74,15 +85,27 @@ export function StageExport({ onConfirm }: { onConfirm: (request: ConfirmRequest
                   {character.name}
                 </div>
               )}
+              {character?.meshUrl && <MeshStatusOverlay status={meshStatus} />}
             </>
           }
         >
-          {character && <Character
-              seed={character.seed}
-              motion={state.motion}
-              appearance={character.appearance}
-              body={state.body}
-            />}
+          {character &&
+            (character.meshUrl ? (
+              // A provider reconstructed real geometry from the upload; show
+              // that rather than the procedural stand-in.
+              <ReconstructedCharacter
+                url={character.meshUrl}
+                motion={state.motion}
+                onStatus={setMeshStatus}
+              />
+            ) : (
+              <Character
+                seed={character.seed}
+                motion={state.motion}
+                appearance={character.appearance}
+                body={state.body}
+              />
+            ))}
           {!state.transparentBackground && <StageFloor accent="#3b82f6" />}
         </Viewport>
       </div>

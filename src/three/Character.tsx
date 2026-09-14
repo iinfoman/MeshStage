@@ -34,8 +34,10 @@ export function Character({ seed, motion, appearance, body = 'full' }: Character
 
   useEffect(() => {
     scene.current.rig = rig;
+    scene.current.exportRoot = rig.root;
     return () => {
       if (scene.current.rig === rig) scene.current.rig = null;
+      if (scene.current.exportRoot === rig.root) scene.current.exportRoot = null;
       rig.dispose();
     };
   }, [rig, scene]);

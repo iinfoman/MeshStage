@@ -1,6 +1,8 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Viewport } from '../../three/Viewport';
 import { Character } from '../../three/Character';
+import { ReconstructedCharacter } from '../../three/ReconstructedCharacter';
+import { MeshStatusOverlay } from '../MeshStatusOverlay';
 import { StageFloor } from '../../three/StageFloor';
 import { ActionBar } from '../ActionBar';
 import { Button } from '../Button';
@@ -19,6 +21,15 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
   const { state, dispatch, audio, lipSync } = useStudio();
   const { groups, count: voiceCount, ready: voicesReady, notice } = useVoiceCatalogue();
   const character = state.character;
+  /**
+   * A provider mesh downloads after the viewport mounts, so the camera fit has
+   * nothing to measure on the first frame. Re-fit once it lands.
+   */
+  const [meshStatus, setMeshStatus] = useState<{
+    loading: boolean;
+    error: string | null;
+    rigged: boolean;
+  }>({ loading: false, error: null, rigged: false });
 
   // Pick a sensible default voice as soon as the catalogue lands: the device
   // locale's first neural voice, else whatever is first in the list.
@@ -61,7 +72,7 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
           fit={{
             focus: state.body === 'head' ? 0.5 : 0.66,
             padding: 1.22,
-            dependency: `${character?.seed}:${state.body}`,
+            dependency: `${character?.seed}:${state.body}:${meshStatus.loading}`,
           }}
           overlay={
             <>
@@ -79,11 +90,27 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
                   <span className="rounded-full bg-obsidian-950/70 px-3 py-1.5 text-[12.5px] font-medium text-ink-100 backdrop-blur-sm">
                     {character.name}
                   </span>
-                  <RigChip icon={<CubeIcon className="size-3" />} label={`${(character.polycount / 1000).toFixed(1)}k tris`} />
-                  <RigChip icon={<BoneIcon className="size-3" />} label={`${character.boneCount} bones`} />
-                  <RigChip label={`${character.blendshapeCount} visemes`} />
+                  {character.meshUrl ? (
+                    // The counts on `character` describe the procedural rig,
+                    // which is not what is on screen here. Report the mesh.
+                    <>
+                      <RigChip icon={<CubeIcon className="size-3" />} label="reconstructed" />
+                      <RigChip
+                        icon={<BoneIcon className="size-3" />}
+                        label={meshStatus.rigged ? 'blendshapes found' : 'geometry only'}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <RigChip icon={<CubeIcon className="size-3" />} label={`${(character.polycount / 1000).toFixed(1)}k tris`} />
+                      <RigChip icon={<BoneIcon className="size-3" />} label={`${character.boneCount} bones`} />
+                      <RigChip label={`${character.blendshapeCount} visemes`} />
+                    </>
+                  )}
                 </div>
               )}
+
+              {character?.meshUrl && <MeshStatusOverlay status={meshStatus} />}
 
               {lipSync.speaking && <SpeakingMeter />}
 
@@ -93,12 +120,23 @@ export function StageVoiceRig({ onConfirm }: { onConfirm: (request: ConfirmReque
             </>
           }
         >
-          {character && <Character
-              seed={character.seed}
-              motion={state.motion}
-              appearance={character.appearance}
-              body={state.body}
-            />}
+          {character &&
+            (character.meshUrl ? (
+              // A provider reconstructed real geometry from the upload; show
+              // that rather than the procedural stand-in.
+              <ReconstructedCharacter
+                url={character.meshUrl}
+                motion={state.motion}
+                onStatus={setMeshStatus}
+              />
+            ) : (
+              <Character
+                seed={character.seed}
+                motion={state.motion}
+                appearance={character.appearance}
+                body={state.body}
+              />
+            ))}
           <StageFloor accent="#22d3ee" />
         </Viewport>
       </div>
