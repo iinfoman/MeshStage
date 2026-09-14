@@ -2,6 +2,12 @@ node_modules
 dist
 dist-ssr
 *.local
+# Backups of env files: `*.local` does not match `.env.local.bak`, and one of
+# those was committed before this line existed.
+*.bak
+.env
+.env.*
+!.env.example
 .DS_Store
 .vite
 
