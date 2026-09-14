@@ -231,14 +231,7 @@ function buildTexture(
   // rather than inside an opaque rectangle.
   if (backdrop) {
     const pixels = context.getImageData(0, 0, TEXTURE, TEXTURE);
-    const { data: px } = pixels;
-    for (let i = 0; i < px.length; i += 4) {
-      const distance =
-        Math.abs(px[i] - backdrop[0]) +
-        Math.abs(px[i + 1] - backdrop[1]) +
-        Math.abs(px[i + 2] - backdrop[2]);
-      if (distance < 42) px[i + 3] = 0;
-    }
+    removeBackdrop(pixels, backdrop);
     context.putImageData(pixels, 0, 0);
   }
 
@@ -543,6 +536,60 @@ function subjectBounds(data: Uint8ClampedArray, backdrop: [number, number, numbe
   }
 
   return found ? { minX, minY, maxX, maxY } : null;
+}
+
+/**
+ * Clears the background by flooding inward from the edges.
+ *
+ * Removing every pixel that merely *matches* the backdrop colour punches holes
+ * through the subject — the whites of eyes, a highlight, a white logo on white
+ * paper all vanish. Only background-connected pixels are actually background,
+ * so this fills from the border and stops at the subject's outline.
+ */
+function removeBackdrop(image: ImageData, backdrop: [number, number, number]): void {
+  const { data, width, height } = image;
+  const matches = (index: number) =>
+    data[index + 3] > 16 &&
+    Math.abs(data[index] - backdrop[0]) +
+      Math.abs(data[index + 1] - backdrop[1]) +
+      Math.abs(data[index + 2] - backdrop[2]) <
+      60;
+
+  const seen = new Uint8Array(width * height);
+  // Typed queue rather than recursion: 256² can overflow the call stack.
+  const queue = new Int32Array(width * height);
+  let head = 0;
+  let tail = 0;
+
+  const push = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    const cell = y * width + x;
+    if (seen[cell]) return;
+    seen[cell] = 1;
+    if (!matches(cell * 4)) return;
+    queue[tail++] = cell;
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    push(x, 0);
+    push(x, height - 1);
+  }
+  for (let y = 0; y < height; y += 1) {
+    push(0, y);
+    push(width - 1, y);
+  }
+
+  while (head < tail) {
+    const cell = queue[head++];
+    data[cell * 4 + 3] = 0;
+
+    const x = cell % width;
+    const y = (cell / width) | 0;
+    push(x + 1, y);
+    push(x - 1, y);
+    push(x, y + 1);
+    push(x, y - 1);
+  }
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {

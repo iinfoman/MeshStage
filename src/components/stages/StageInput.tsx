@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '../Button';
 import { ActionBar } from '../ActionBar';
 import { SegmentedTabs } from '../Controls';
@@ -8,6 +8,7 @@ import { hasUsableInput } from '../../state/studioReducer';
 import { cn, formatBytes } from '../../lib/utils';
 import type { ConfirmRequest } from '../ConfirmDialog';
 import type { InputMode } from '../../types/studio';
+import { renderSample, SAMPLES } from '../../lib/samples';
 
 /**
  * Hard ceiling before we even try to decode. Modern phone photos land well
@@ -97,6 +98,8 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
    * reproduce, this is the difference between a fix and a guess.
    */
   const [trace, setTrace] = useState<string[]>([]);
+  /** Set when a tap on the picker produced no chooser and no file. */
+  const [pickerSilent, setPickerSilent] = useState(false);
   // A failed generation lands back here; show why before the local error.
   const message = error ?? state.generationError;
 
@@ -149,6 +152,42 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
     [dispatch],
   );
 
+  /** Adopts an image we already hold as a data URL — a paste, or a sample. */
+  const useDataUrl = useCallback(
+    (dataUrl: string, name: string) => {
+      setError(null);
+      setTrace([]);
+      setPickerSilent(false);
+      dispatch({ type: 'setImage', dataUrl, name });
+    },
+    [dispatch],
+  );
+
+  /**
+   * Paste is the reliable way in when a picker is unavailable.
+   *
+   * Embedded viewers can block the file chooser outright — the tap never
+   * reaches one — and nothing the page does can override that. A clipboard
+   * image needs no chooser at all.
+   */
+  useEffect(() => {
+    if (state.inputMode !== 'image') return;
+
+    const onPaste = (event: ClipboardEvent) => {
+      const item = [...(event.clipboardData?.items ?? [])].find((entry) =>
+        entry.type.startsWith('image/'),
+      );
+      const file = item?.getAsFile();
+      if (file) {
+        event.preventDefault();
+        void ingestFile(file);
+      }
+    };
+
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [state.inputMode, ingestFile]);
+
   const handleDiscard = () => {
     onConfirm({
       title: 'Discard this input?',
@@ -193,6 +232,9 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
               dragging={dragging}
               setDragging={setDragging}
               onFile={ingestFile}
+              onSample={useDataUrl}
+              onPickerSilent={() => setPickerSilent(true)}
+              pickerSilent={pickerSilent}
               busy={busy}
               imageDataUrl={state.imageDataUrl}
               imageName={state.imageName}
@@ -266,6 +308,9 @@ function UploadPane({
   dragging,
   setDragging,
   onFile,
+  onSample,
+  onPickerSilent,
+  pickerSilent,
   busy,
   imageDataUrl,
   imageName,
@@ -274,12 +319,35 @@ function UploadPane({
   dragging: boolean;
   setDragging: (value: boolean) => void;
   onFile: (file: File | undefined) => void;
+  onSample: (dataUrl: string, name: string) => void;
+  onPickerSilent: () => void;
+  pickerSilent: boolean;
   busy: boolean;
   imageDataUrl: string | null;
   imageName: string | null;
   onClear: () => void;
 }) {
   const accept = 'image/*,.heic,.heif';
+
+  /**
+   * Notices when a tap produced no chooser.
+   *
+   * A blocked picker is indistinguishable from a missed tap unless we watch
+   * for it: no `change` and no window blur means no chooser ever appeared, and
+   * the user needs to be told to use another route rather than tapping again.
+   */
+  const watchForSilentPicker = () => {
+    let sawBlur = false;
+    const onBlur = () => {
+      sawBlur = true;
+    };
+    window.addEventListener('blur', onBlur, { once: true });
+
+    window.setTimeout(() => {
+      window.removeEventListener('blur', onBlur);
+      if (!sawBlur) onPickerSilent();
+    }, 1500);
+  };
 
   const hiddenInput = (id: string, capture?: 'user' | 'environment') => (
     <input
@@ -351,6 +419,7 @@ function UploadPane({
       >
         <label
           htmlFor="meshstage-upload"
+          onClick={watchForSilentPicker}
           className="flex w-full cursor-pointer flex-col items-center gap-3 px-6 py-10 text-center"
         >
           <span className="grid size-14 place-items-center rounded-2xl bg-gradient-to-br from-beam-500/18 to-pulse-500/12 text-beam-400 ring-1 ring-beam-500/25">
@@ -387,6 +456,38 @@ function UploadPane({
         Take a photo now
         {hiddenInput('meshstage-camera', 'user')}
       </label>
+
+      {pickerSilent && (
+        <div className="rounded-2xl border border-warn-400/30 bg-warn-400/[0.07] px-3.5 py-3">
+          <p className="text-[12.5px] leading-relaxed text-warn-400">
+            Your browser didn't open a file chooser. Embedded viewers often block it, and the page
+            can't override that.
+          </p>
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-ink-500">
+            Copy an image and paste it here instead, or start from a sample below. To upload your
+            own files, open the studio on its own page rather than embedded.
+          </p>
+        </div>
+      )}
+
+      <div>
+        <p className="mb-2 text-[11px] font-semibold tracking-[0.13em] text-ink-500 uppercase">
+          Or start from a sample
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {SAMPLES.map((sample) => (
+            <button
+              key={sample.id}
+              type="button"
+              onClick={() => onSample(renderSample(sample), `${sample.id}-sample.png`)}
+              className="flex min-h-touch flex-col items-start justify-center rounded-2xl border border-obsidian-700 bg-obsidian-850/70 px-3.5 py-2 text-left active:bg-obsidian-800"
+            >
+              <span className="text-[13.5px] font-medium text-ink-100">{sample.label}</span>
+              <span className="text-[11px] text-ink-600">{sample.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <p className="px-1 text-[11.5px] leading-relaxed text-ink-600">
         A face or mascot comes back as a head. A full figure comes back as a full body.

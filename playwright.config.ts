@@ -41,7 +41,13 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npm run build && npm run preview -- --port 4173 --host 127.0.0.1',
+    // Explicitly blank the backend vars so the suite is deterministic: a
+    // developer with a .env.local pointing at a real Supabase project would
+    // otherwise get a signed-out paywall where the tests expect a download
+    // button, and CI (which has no .env.local) would disagree with them.
+    command:
+      'VITE_SUPABASE_URL= VITE_SUPABASE_ANON_KEY= VITE_MESHSTAGE_API= npm run build' +
+      ' && npm run preview -- --port 4173 --host 127.0.0.1',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
