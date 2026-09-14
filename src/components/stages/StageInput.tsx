@@ -27,13 +27,14 @@ const MAX_EDGE = 1600;
  * those outright — which this used to do — meant a normal camera-roll photo
  * simply failed.
  */
-async function readAsDataUrl(file: File): Promise<string> {
+async function readAsDataUrl(file: File, note: (step: string) => void): Promise<string> {
   const raw = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error('That file could not be read.'));
+    reader.onerror = () => reject(new Error('That file could not be read from storage.'));
     reader.readAsDataURL(file);
   });
+  note('read from storage');
 
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const element = new Image();
@@ -48,6 +49,8 @@ async function readAsDataUrl(file: File): Promise<string> {
     element.src = raw;
   });
 
+  note(`decoded ${image.naturalWidth}x${image.naturalHeight}`);
+
   const longest = Math.max(image.naturalWidth, image.naturalHeight);
   if (longest <= MAX_EDGE) return raw;
 
@@ -61,8 +64,16 @@ async function readAsDataUrl(file: File): Promise<string> {
   context.imageSmoothingQuality = 'high';
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
-  // PNG keeps the transparency a mascot or sticker depends on.
-  return canvas.toDataURL('image/png');
+  try {
+    // PNG keeps the transparency a mascot or sticker depends on.
+    const scaled = canvas.toDataURL('image/png');
+    note(`downscaled to ${canvas.width}x${canvas.height}`);
+    return scaled;
+  } catch {
+    // If the canvas cannot be read back, the full-size image still works.
+    note('downscale blocked — using full size');
+    return raw;
+  }
 }
 
 const PROMPT_IDEAS = [
@@ -77,6 +88,15 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * A trace of the last upload attempt.
+   *
+   * An upload can fail in several places that all look identical from the
+   * outside — the picker never opens, the change event never fires, the decode
+   * throws, the downscale throws. When it fails on a device we cannot
+   * reproduce, this is the difference between a fix and a guess.
+   */
+  const [trace, setTrace] = useState<string[]>([]);
   // A failed generation lands back here; show why before the local error.
   const message = error ?? state.generationError;
 
@@ -86,7 +106,19 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
   const ingestFile = useCallback(
     async (file: File | undefined) => {
       setError(null);
-      if (!file) return;
+      const steps: string[] = [];
+      const note = (step: string) => {
+        steps.push(step);
+        setTrace([...steps]);
+      };
+
+      note(file ? 'picker returned a file' : 'picker returned nothing');
+      if (!file) {
+        setError('No file came back from the picker. Try again, or pick from Files instead.');
+        return;
+      }
+
+      note(`${file.name || '(no name)'} · ${formatBytes(file.size)} · ${file.type || 'no type'}`);
 
       // Some Android pickers hand back an empty MIME type, so trust the
       // extension too rather than rejecting a perfectly good photo.
@@ -104,9 +136,11 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
 
       setBusy(true);
       try {
-        const dataUrl = await readAsDataUrl(file);
+        const dataUrl = await readAsDataUrl(file, note);
+        note('ready');
         dispatch({ type: 'setImage', dataUrl, name: file.name });
       } catch (caught) {
+        note('FAILED');
         setError(caught instanceof Error ? caught.message : 'Could not read that image.');
       } finally {
         setBusy(false);
@@ -173,9 +207,23 @@ export function StageInput({ onConfirm }: { onConfirm: (request: ConfirmRequest)
         </div>
 
         {message && (
-          <p role="alert" className="mt-3 rounded-xl bg-danger-500/10 px-3.5 py-2.5 text-[12.5px] text-danger-400">
-            {message}
-          </p>
+          <div role="alert" className="mt-3 rounded-xl bg-danger-500/10 px-3.5 py-2.5">
+            <p className="text-[12.5px] leading-relaxed text-danger-400">{message}</p>
+            {trace.length > 0 && (
+              <details className="mt-2">
+                <summary className="flex min-h-touch cursor-pointer items-center text-[11.5px] text-ink-500">
+                  What the app tried
+                </summary>
+                <ol className="mt-1 space-y-0.5 font-mono text-[10.5px] leading-relaxed text-ink-500">
+                  {trace.map((step, index) => (
+                    <li key={`${step}-${index}`}>
+                      {index + 1}. {step}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
+          </div>
         )}
 
       </div>
